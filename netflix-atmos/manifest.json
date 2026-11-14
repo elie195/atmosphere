@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Atmosphere",
-  "version": "0.16.0",
+  "version": "0.4.0",
   "description": "Dolby Atmos for Netflix and Disney+ in Safari: requests Atmos audio (and 4K/HDR on Disney+) and switches Safari into Atmos mode.",
   "content_scripts": [
     {

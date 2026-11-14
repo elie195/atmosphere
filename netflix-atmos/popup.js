@@ -42,13 +42,13 @@ async function send(msg) {
 
 // ---------- site theming ----------
 const SITES = {
-  netflix: { name: 'Netflix', theme: '', desc: "Request Atmos from Netflix" },
-  disney: { name: 'Disney+', theme: 'theme-disney', desc: 'Request Atmos, 4K and HDR from Disney+' },
+  netflix: { name: 'Netflix', theme: '', desc: 'Request Atmos' },
+  disney: { name: 'Disney+', theme: 'theme-disney', desc: 'Request Atmos, 4K and HDR' },
 };
 function applySite(site) {
   const s = SITES[site];
   document.body.className = s ? s.theme : '';
-  $('site').textContent = s ? s.name : 'Safari';
+  $('site').textContent = s ? s.name : '';
   if (s) $('requestDesc').textContent = s.desc;
   $('disneySettings').hidden = site !== 'disney';
 }
@@ -79,29 +79,32 @@ function logoChip(cls, file, alt, fallback) {
   return el;
 }
 const visionChip = () => { const c = chip('vision', 'VISION'); c.prepend(Object.assign(document.createElement('i'), { className: 'spectrum' })); return c; };
-function formatChips(p, v) {
+function videoChips(v) {
   const out = [];
-  if (v && v.height) out.push(chip('res', v.label));
-  if (v && v.range === 'Dolby Vision') out.push(logoChip('vision', 'dolby-vision.svg', 'Dolby Vision', visionChip));
-  else if (v && v.range === 'HDR10') out.push(chip('', 'HDR10'));
-  if (p && !p.tentative) {
-    if (p.jocFlag) out.push(logoChip('atmos', 'dolby-atmos.svg', 'Dolby Atmos', () => chip('atmos', 'ATMOS', DOME)));
-    else if (p.channels >= 6) out.push(chip('', '5.1'));
-    else if (p.channels) out.push(chip('', 'STEREO'));
-  }
-  if (v && v.format && v.range !== 'Dolby Vision') out.push(chip('ghost', v.format)); // Dolby Vision implies HEVC
+  if (!v || !v.height) return out;
+  out.push(chip('res', v.label));
+  if (v.range === 'Dolby Vision') out.push(logoChip('vision', 'dolby-vision.svg', 'Dolby Vision', visionChip));
+  else if (v.range === 'HDR10') out.push(chip('', 'HDR10'));
   return out;
 }
+function audioChips(p) {
+  if (!p || p.tentative) return [];
+  if (p.jocFlag) return [logoChip('atmos', 'dolby-atmos.svg', 'Dolby Atmos', () => chip('atmos', 'ATMOS', DOME))];
+  if (p.channels >= 6) return [chip('', '5.1')];
+  if (p.channels) return [chip('', 'STEREO')];
+  return [];
+}
 
-function setRow(id, cls, text, logo) {
+// A row shows badges when there are any, otherwise a short text.
+function setRow(id, cls, text, makeChips, key) {
   $(id).className = 'row ' + cls;
   const b = $(id).querySelector('b');
-  const key = text + '|' + (logo ? logo.file : '');
-  if (b.dataset.key === key) return; // avoid re-creating images every second
-  b.dataset.key = key;
-  if (!logo) { b.textContent = text; return; }
-  b.replaceChildren(...(logo.prefix ? [document.createTextNode(logo.prefix + ' ')] : []),
-    brandLogo(logo.file, logo.alt, () => document.createTextNode(logo.alt)));
+  const k = (key || '') + '|' + text;
+  if (b.dataset.key === k) return; // avoid re-creating images every second
+  b.dataset.key = k;
+  const chips = makeChips ? makeChips() : [];
+  b.className = chips.length ? 'chips-inline' : '';
+  if (chips.length) b.replaceChildren(...chips); else b.textContent = text;
 }
 
 // ---------- render ----------
@@ -122,31 +125,14 @@ function render({ site = 'netflix', state, logs, settings }) {
   // Audio row
   if (!p) setRow('row-audio', '', live ? 'Waiting for audio…' : 'Nothing playing');
   else if (p.tentative && p.codec === 'eac3') setRow('row-audio', '', 'Dolby Digital Plus · checking…');
-  else setRow('row-audio', atmos ? 'ok' : 'warn', p.label || 'Unknown', atmos ? { file: 'dolby-atmos.svg', alt: 'Dolby Atmos' } : null);
+  else setRow('row-audio', atmos ? 'ok' : 'warn', p.label || 'Unknown', () => audioChips(p), JSON.stringify([p.jocFlag, p.channels]));
 
   // Video row
   const videoText = v.height ? [v.label, v.range && v.range !== 'SDR' ? v.range : ''].filter(Boolean).join(' ') : '';
   setRow('row-video', v.height ? (v.height >= 1080 ? 'ok' : 'warn') : '', videoText || (live ? 'Waiting for video…' : 'Nothing playing'),
-    v.height && v.range === 'Dolby Vision' ? { file: 'dolby-vision.svg', alt: 'Dolby Vision', prefix: v.label } : null);
+    () => videoChips(v), JSON.stringify([v.label, v.range]));
 
-  // Headline
-  const name = (SITES[site] || {}).name || '';
-  const headline = live && atmos ? 'Atmos is on'
-    : live && p ? `Playing ${p.label ? p.label.replace(/^Dolby Digital Plus /, 'Dolby ') : 'without Atmos'}`
-    : p ? 'Paused'
-    : settings.requestAtmos ? 'Ready' : 'Atmos request off';
-  $('headline').textContent = headline;
-  const chipKey = JSON.stringify([v.label, v.range, v.format, p && p.jocFlag, p && p.channels, p && p.tentative]);
-  let chips = [...$('chips').children];
-  if ($('chips').dataset.key !== chipKey) {
-    chips = formatChips(p, v);
-    $('chips').dataset.key = chipKey;
-    $('chips').replaceChildren(...chips);
-  }
-  $('chips').hidden = !chips.length;
-  $('subline').textContent = chips.length ? '' : live || p ? [p && p.label, videoText].filter(Boolean).join(' · ') : `Start a title on ${name}`;
-  $('subline').hidden = !$('subline').textContent;
-  $('eq').classList.toggle('live', live && atmos);
+  $('subline').textContent = '';
 
   renderStats(site, state, settings);
   renderLogs(logs);
@@ -215,18 +201,16 @@ async function showAway() {
   const url = (tab && tab.url) || '';
   const site = /^https:\/\/www\.netflix\.com\//.test(url) ? 'netflix' : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url) ? 'disney' : null;
   applySite(site);
+  // Other websites: just the brand and one line, nothing else.
+  document.body.classList.toggle('idle', !site);
   $('now').hidden = true;
-  $('away').hidden = false;
+  $('away').hidden = !site;
   $('reloadTab').hidden = !site;
-  $('chips').hidden = true;
-  $('subline').hidden = false;
-  $('headline').textContent = site ? 'Reload needed' : 'Not on Netflix or Disney+';
-  $('subline').textContent = site ? 'Atmosphere was updated' : 'Open a title to get Atmos';
+  $('subline').textContent = site ? '' : 'Open Netflix or Disney+ to start';
   $('awayTitle').textContent = site ? "Atmosphere isn't connected to this tab" : 'Open Netflix or Disney+';
   $('awayText').textContent = site
     ? 'Reload the tab to reconnect.'
     : "Already there? Allow Atmosphere on the site in Safari Settings → Websites → Extensions.";
-  $('eq').classList.remove('live');
 }
 
 async function refresh() {
@@ -286,6 +270,11 @@ try { $('nerds').open = localStorage.getItem('atmosphere-nerds') === '1'; } catc
 $('nerds').addEventListener('toggle', () => { try { localStorage.setItem('atmosphere-nerds', $('nerds').open ? '1' : '0'); } catch { /* ignore */ } });
 
 // ---------- start ----------
+// Safari auto-focuses the first focusable element when the popup opens; clear it.
+const clearFocus = () => { if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur(); };
+clearFocus();
+requestAnimationFrame(clearFocus);
+setTimeout(clearFocus, 50);
 (async () => {
   let s = DEFAULTS;
   if (api) { try { s = await api.storage.local.get(DEFAULTS); } catch { /* ignore */ } }
