@@ -8,3 +8,4 @@ DerivedData/
 # Dolby test clip: Dolby's content, not ours to redistribute.
 # Fetch it with tools/fetch-prime-clip.sh before building.
 netflix-atmos/prime.mp4
+logs/

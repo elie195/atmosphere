@@ -88,6 +88,7 @@
     const sb = origAdd.call(this, type);
     sb.__dolbyType = type;
     if (/audio/i.test(type)) emit('sourcebuffer', 'Player opened an audio stream', type);
+    else if (/video/i.test(type)) emit('videotype', 'Player opened a video stream', type);
     return sb;
   };
   // Players switch codec mid-playback (e.g. AAC ↔ Dolby) with changeType() on the same buffer.

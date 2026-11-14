@@ -10,9 +10,11 @@
   --warn: #e08a00;
   --warn-bg: #fff3dc;
   --idle: #b8b4ca;
-  --hero-a: #5b5bf7;
-  --hero-b: #8b3df0;
-  --hero-c: #e0459b;
+  --hero-a: #3a2bc9;
+  --hero-b: #7531e0;
+  --hero-c: #c22c9b;
+  --hero-glow: rgba(255, 95, 170, .38);
+  --hero-shine: rgba(255, 255, 255, .13);
   --mono: ui-monospace, "SF Mono", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
@@ -48,15 +50,13 @@ body {
   gap: 10px;
   padding: 16px 16px 30px;
   color: #fff;
-  background: linear-gradient(135deg, var(--hero-a), var(--hero-b) 55%, var(--hero-c));
+  /* Highlight and glow are background layers, so they fade out smoothly with no box edge. */
+  background:
+    radial-gradient(120% 90% at 12% -10%, var(--hero-shine), rgba(255,255,255,0) 60%),
+    radial-gradient(90% 120% at 100% 120%, var(--hero-glow), transparent 65%),
+    linear-gradient(150deg, var(--hero-a) 0%, var(--hero-b) 52%, var(--hero-c) 100%);
   border-radius: 0 0 22px 22px;
   overflow: hidden;
-}
-.hero::after {
-  content: "";
-  position: absolute; inset: -40% 40% 30% -20%;
-  background: radial-gradient(circle, rgba(255,255,255,.28), transparent 60%);
-  pointer-events: none;
 }
 .logo { border-radius: 10px; box-shadow: 0 0 0 1.5px rgba(255,255,255,.45), 0 4px 12px rgba(30,0,80,.35); }
 .titles h1 { margin: 0; font-size: 16px; font-weight: 700; letter-spacing: -.01em; }
@@ -183,3 +183,27 @@ main { padding: 0 12px 12px; margin-top: -18px; position: relative; }
 .logs .msg { word-break: break-word; }
 
 .tip { margin: 2px 4px 0; text-align: center; font-size: 11.5px; color: var(--muted); }
+
+.card-title { margin: 0 0 4px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.select {
+  flex: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--fg);
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; cursor: pointer;
+}
+.select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.note { display: block; color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+/* Disney+ theme: deep blue to cyan */
+body.theme-disney {
+  --hero-a: #0a1647;
+  --hero-b: #1a3a9e;
+  --hero-c: #1593cc;
+  --hero-glow: rgba(64, 214, 255, .45);
+  --hero-shine: rgba(255, 255, 255, .16);
+  --accent: #1f7fd6;
+}
+@media (prefers-color-scheme: dark) {
+  body.theme-disney { --accent: #5cb6ff; --bg: #0f1420; --card: #172033; --line: #26324a; }
+}
+
+/* Make the hidden attribute win over display rules above. */
+[hidden] { display: none !important; }

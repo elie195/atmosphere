@@ -2,18 +2,23 @@
 // Opened outside Safari (no extension API), it renders demo data for previewing.
 const api = globalThis.browser;
 const $ = (id) => document.getElementById(id);
-const DEFAULTS = { requestAtmos: true, prime: true, debug: false };
+const DEFAULTS = { requestAtmos: true, prime: true, debug: false, disneyQuality: 'max', disneyRange: 'dv' };
 
 let tabId = null;
 let lastLogs = [];
 
+const DEMO_SITE = new URLSearchParams(location.search).get('site') || 'netflix';
 const DEMO = {
+  site: DEMO_SITE,
   settings: { ...DEFAULTS, debug: true },
   state: {
     hooks: true, requested: true, active: true,
     playing: { jocFlag: 1, dataRateKbps: 768, complexityIndex: 16, label: 'Dolby Atmos' },
     primed: 'ok', primeSource: 'extension',
     switches: [{ t: Date.now() - 2000, from: 'Dolby Digital Plus 5.1 448 kbps', to: 'Dolby Atmos 768 kbps', gainedAtmos: true }],
+    video: { width: 3840, height: 2160, label: '4K', codec: 'dvh1.05.06', range: DEMO_SITE === 'disney' ? 'Dolby Vision' : 'SDR',
+      format: 'HEVC', dropped: 12, total: 4210, switches: [{ t: Date.now() - 6000, from: '480p', to: '4K' }] },
+    qualityFloor: { floor: '2160', kept: [2160] },
   },
   logs: [
     { t: Date.now() - 9000, kind: 'hooks', msg: 'Hooks installed' },
@@ -42,7 +47,22 @@ function setStep(id, cls, note) {
   li.querySelector('small').textContent = note || '';
 }
 
-function render({ state, logs, settings }) {
+const SITES = {
+  netflix: { name: 'Netflix', theme: '', requested: 'Asked Netflix for Atmos', desc: "Add Dolby audio to Netflix's request" },
+  disney: { name: 'Disney+', theme: 'theme-disney', requested: 'Asked Disney+ for Atmos', desc: 'Add Atmos, 4K and HDR to Disney+\'s request' },
+};
+function applySite(site) {
+  const s = SITES[site] || SITES.netflix;
+  document.body.className = s.theme;
+  $('subtitle').textContent = `Dolby Atmos for ${s.name} in Safari`;
+  $('requestedTitle').textContent = s.requested;
+  $('requestDesc').textContent = s.desc;
+  $('disneyCard').hidden = site !== 'disney';
+}
+
+function render({ site, state, logs, settings }) {
+  site = site || 'netflix';
+  applySite(site);
   $('away').hidden = true;
   $('steps').hidden = false;
   $('t-request').checked = settings.requestAtmos;
@@ -50,8 +70,27 @@ function render({ state, logs, settings }) {
   $('t-debug').checked = !!settings.debug;
   $('logs').hidden = !settings.debug;
 
+  const requestedNote = site === 'disney'
+    ? `Atmos, up to 4K, ${({ dv: 'Dolby Vision', hdr10: 'HDR10', sdr: 'SDR' })[settings.disneyRange] || 'HDR'}`
+    : 'Dolby 5.1 + Atmos added to the request';
   setStep('s-requested', state.requested ? 'ok' : settings.requestAtmos ? 'wait' : 'warn',
-    state.requested ? 'Dolby 5.1 + Atmos added to the request' : settings.requestAtmos ? 'Happens when a title starts' : 'Turned off');
+    state.requested ? requestedNote : settings.requestAtmos ? 'Happens when a title starts' : 'Turned off');
+
+  const v = state.video;
+  if (v) {
+    const fmt = (t) => new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    const parts = [v.height && `${v.label} (${v.width}x${v.height})`, v.range, v.format].filter(Boolean);
+    let vnote = parts.length ? parts.join(' · ') : 'Nothing playing';
+    if (v.total > 0 && v.dropped > 0) vnote += `\nDropped ${v.dropped} of ${v.total} frames`;
+    const vsw = v.switches && v.switches[v.switches.length - 1];
+    if (vsw) vnote += `\n↳ Changed at ${fmt(vsw.t)} from ${vsw.from}${v.switches.length > 1 ? ` (${v.switches.length} changes)` : ''}`;
+    if (site === 'disney') {
+      const floor = settings.disneyQuality;
+      if (floor === 'max') vnote += '\nQuality: Highest';
+      else if (floor !== 'auto') vnote += `\nQuality floor: ${floor === '2160' ? '4K' : floor + 'p'}`;
+    }
+    setStep('s-video', v.height ? (v.height >= 1080 ? 'ok' : 'warn') : 'wait', vnote);
+  }
 
   const p = state.playing;
   const live = !!state.active;
@@ -72,7 +111,7 @@ function render({ state, logs, settings }) {
     const at = new Date(sw.t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
     const more = state.switches.length > 1 ? ` (${state.switches.length} changes)` : '';
     note += `\n↳ Changed at ${at} from ${sw.from}${more}`;
-    if (sw.lostAtmos && cls === 'warn') note += '\nNetflix dropped Atmos, often due to bandwidth';
+    if (sw.lostAtmos && cls === 'warn') note += `\n${SITES[site].name} dropped Atmos, often due to bandwidth`;
   }
   setStep('s-playing', cls, note);
 
@@ -123,16 +162,20 @@ async function activeTab() {
 async function showAway() {
   const tab = await activeTab();
   // Safari only reveals the URL for sites the extension may access.
-  const onNetflix = !!(tab && tab.url && /^https:\/\/www\.netflix\.com\//.test(tab.url));
+  const url = (tab && tab.url) || '';
+  const site = /^https:\/\/www\.netflix\.com\//.test(url) ? 'netflix' : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url) ? 'disney' : null;
+  applySite(site || 'netflix');
+  $('subtitle').textContent = 'Dolby Atmos for Netflix and Disney+ in Safari';
+  $('disneyCard').hidden = site !== 'disney';
   $('away').hidden = false;
   $('steps').hidden = true;
-  $('reloadTab').hidden = !onNetflix;
-  $('awayTitle').textContent = onNetflix ? "Atmosphere isn't connected to this tab" : 'Open a Netflix tab';
-  $('awayText').textContent = onNetflix
+  $('reloadTab').hidden = !site;
+  $('awayTitle').textContent = site ? "Atmosphere isn't connected to this tab" : 'Open Netflix or Disney+';
+  $('awayText').textContent = site
     ? 'This usually happens after Atmosphere updates. Reload the tab to reconnect.'
-    : "Status and logs appear here while Netflix is the active tab. On Netflix already? Check that Atmosphere is allowed on netflix.com (click the extension's icon, or Safari Settings → Websites → Extensions).";
+    : "Status and logs appear here while Netflix or Disney+ is the active tab. Already there? Check that Atmosphere is allowed on the site (click the extension's icon, or Safari Settings → Websites → Extensions).";
   $('badge').className = 'badge warn';
-  $('badgeText').textContent = onNetflix ? 'Reload needed' : 'Not on Netflix';
+  $('badgeText').textContent = site ? 'Reload needed' : 'Not on a supported site';
   $('eq').classList.remove('live');
   renderLogs([]);
 }
@@ -186,4 +229,25 @@ $('clear').addEventListener('click', async (e) => {
   }
   refresh();
   setInterval(refresh, 1000);
+})();
+
+// Disney+ video settings (stored; read by disney-content.js when a title starts).
+(async () => {
+  const VDEF = { disneyQuality: 'max', disneyRange: 'dv' };
+  let v = VDEF;
+  if (api) { try { v = await api.storage.local.get(VDEF); } catch { /* ignore */ } }
+  const QDESC = {
+    max: 'Best resolution the title has, within seconds',
+    auto: "Disney+'s own quality choice (starts low)",
+    2160: '4K, or the best the title has', 1440: 'At least 1440p',
+    1080: 'At least 1080p', 720: 'At least 720p',
+  };
+
+  $('s-quality').value = v.disneyQuality;
+  $('s-range').value = v.disneyRange;
+  $('qualityDesc').textContent = QDESC[v.disneyQuality] || '';
+  $('s-quality').addEventListener('change', () => { $('qualityDesc').textContent = QDESC[$('s-quality').value] || ''; });
+  const save = () => api && api.storage.local.set({ disneyQuality: $('s-quality').value, disneyRange: $('s-range').value });
+  $('s-quality').addEventListener('change', save);
+  $('s-range').addEventListener('change', save);
 })();

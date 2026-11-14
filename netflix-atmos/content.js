@@ -17,6 +17,7 @@ const state = {
 const debugConsole = (...a) => { if (settings.debug) console.info(TAG, ...a); };
 const describe = (p) => p.label + (p.dataRateKbps ? ` ${p.dataRateKbps} kbps` : '');
 const logs = [];
+const video = createVideoTracker();
 // Repeated identical events (Netflix sends many requests) collapse into one line with a count.
 function log(kind, msg, data) {
   if (!settings.debug) return; // debug mode off: keep no logs
@@ -27,6 +28,10 @@ function log(kind, msg, data) {
     return;
   }
   logs.push({ t: Date.now(), kind, msg, data: data === undefined ? null : data, count: 1 });
+  try {
+    const text = data === undefined || data === null ? '' : (typeof data === 'string' ? data : JSON.stringify(data)).slice(0, 4000);
+    browser.runtime.sendMessage({ atmosLog: { site: 'netflix', kind, msg, text } });
+  } catch (e) { /* ignore */ }
   if (logs.length > 200) logs.shift();
 }
 
@@ -63,8 +68,10 @@ window.addEventListener('message', (e) => {
   if (kind === 'profiles') state.requested = true;
   // A new audio stream is opening (new title or episode). Until its header is read,
   // show a provisional answer from the stream type the player declared.
+  if (kind === 'videotype') video.setCodec(data);
   if (kind === 'sourcebuffer') {
     state.switches = [];
+    video.reset();
     const t = String(data || '');
     state.playing = /ec-3|ec\+3/.test(t) ? { tentative: true, codec: 'eac3', jocFlag: 0, label: 'Dolby Digital Plus' }
       : /ac-3/.test(t) ? { tentative: true, codec: 'ac3', jocFlag: 0, label: 'Dolby Digital' }
@@ -151,7 +158,7 @@ for (const ev of ['pointerdown', 'keydown'])
 // Popup API
 browser.runtime.onMessage.addListener((m) => {
   if (!m || !m.dolby) return;
-  if (m.dolby === 'get') return Promise.resolve({ state: { ...state, active: isPlaying() }, logs, settings });
+  if (m.dolby === 'get') return Promise.resolve({ site: 'netflix', state: { ...state, active: isPlaying(), video: video.snapshot() }, logs, settings });
   if (m.dolby === 'prime') return prime('popup', true).then((r) => ({ primed: r }));
   if (m.dolby === 'clear') { logs.length = 0; return Promise.resolve({ ok: true }); }
   if (m.dolby === 'settings') {
