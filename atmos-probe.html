@@ -1,0 +1,48 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atmos Capability Probe</title>
+<style>
+:root{--bg:#fff;--fg:#111;--ok:#0a7d32;--no:#b3261e;--mut:#666}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--ok:#5bd17f;--no:#ff7a70;--mut:#999}}
+body{background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,system-ui,sans-serif;margin:24px 16px;max-width:760px}
+table{border-collapse:collapse;width:100%}td{padding:6px 8px;border-bottom:1px solid #8883;vertical-align:top}
+.ok{color:var(--ok);font-weight:600}.no{color:var(--no);font-weight:600}small{color:var(--mut)}
+pre{white-space:pre-wrap;font-size:12px;background:#8881;padding:8px}
+</style></head><body>
+<h1>Atmos capability probe</h1>
+<p><small>What this browser reports to sites like Netflix about Dolby audio. Click Copy and paste the result back.</small></p>
+<table id="t"></table>
+<p><button id="c">Copy results</button></p>
+<pre id="raw"></pre>
+<script>
+const rows=[], out=[];
+function add(name,val,note){rows.push([name,val,note||'']);out.push(name+': '+JSON.stringify(val));render();}
+function render(){document.getElementById('t').innerHTML=rows.map(([n,v,x])=>`<tr><td>${n}<br><small>${x}</small></td><td class="${v===true?'ok':v===false?'no':''}">${typeof v==='object'?JSON.stringify(v):v}</td></tr>`).join('');document.getElementById('raw').textContent=out.join('\n');}
+(async()=>{
+  add('userAgent',navigator.userAgent);
+  const types=['audio/mp4; codecs="ec-3"','audio/mp4; codecs="ac-3"','audio/mp4; codecs="mp4a.40.2"'];
+  for(const t of types){
+    add('MSE isTypeSupported '+t, !!(window.MediaSource&&MediaSource.isTypeSupported(t)));
+    add('canPlayType '+t, document.createElement('audio').canPlayType(t)||'""');
+  }
+  if(navigator.mediaCapabilities){
+    const cfgs=[
+      ['ec-3 5.1',{contentType:'audio/mp4; codecs="ec-3"',channels:'6',bitrate:640000,samplerate:48000}],
+      ['ec-3 JOC (Atmos) spatialRendering',{contentType:'audio/mp4; codecs="ec-3"',channels:'16/JOC',bitrate:768000,samplerate:48000,spatialRendering:true}],
+      ['ec-3 spatialRendering',{contentType:'audio/mp4; codecs="ec-3"',channels:'6',bitrate:640000,samplerate:48000,spatialRendering:true}],
+    ];
+    for(const [n,audio] of cfgs){
+      try{const r=await navigator.mediaCapabilities.decodingInfo({type:'media-source',audio});add('decodingInfo '+n,r.supported,`smooth=${r.smooth} powerEfficient=${r.powerEfficient}`);}
+      catch(e){add('decodingInfo '+n,'error: '+e.message);}
+    }
+  } else add('mediaCapabilities','not available');
+  try{const ac=new (window.AudioContext||window.webkitAudioContext)();add('AudioContext maxChannelCount',ac.destination.maxChannelCount,'channels the current output device exposes');ac.close();}catch(e){add('AudioContext','error: '+e.message);}
+  for(const ks of ['com.apple.fps','com.apple.fps.1_0','com.widevine.alpha']){
+    try{
+      await navigator.requestMediaKeySystemAccess(ks,[{initDataTypes:['cenc','sinf','skd'],audioCapabilities:[{contentType:'audio/mp4; codecs="ec-3"'}],videoCapabilities:[{contentType:'video/mp4; codecs="avc1.640028"'}]}]);
+      add('EME '+ks+' + ec-3',true);
+    }catch(e){add('EME '+ks+' + ec-3',false,e.name);}
+  }
+})();
+document.getElementById('c').onclick=()=>navigator.clipboard.writeText(out.join('\n'));
+</script></body></html>

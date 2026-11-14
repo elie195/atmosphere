@@ -1,0 +1,10 @@
+# Xcode build output and user state
+Atmosphere/build/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.DS_Store
+
+# Dolby test clip: Dolby's content, not ours to redistribute.
+# Fetch it with tools/fetch-prime-clip.sh before building.
+netflix-atmos/prime.mp4

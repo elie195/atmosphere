@@ -1,0 +1,93 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atmos Path Test</title>
+<style>
+:root{--bg:#fff;--fg:#111;--mut:#666;--card:#f4f4f5;--acc:#2563eb}
+@media (prefers-color-scheme:dark){:root{--bg:#111;--fg:#eee;--mut:#999;--card:#1c1c1f;--acc:#60a5fa}}
+body{background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,system-ui,sans-serif;margin:24px 16px;max-width:720px}
+.card{background:var(--card);border-radius:10px;padding:14px 16px;margin:14px 0}
+button{font:inherit;padding:8px 14px;border-radius:8px;border:0;background:var(--acc);color:#fff;cursor:pointer}
+small,.log{color:var(--mut)}.log{font:12px ui-monospace,monospace;white-space:pre-wrap;margin-top:8px}
+audio{width:100%;margin-top:8px}
+</style></head><body>
+<h1>Atmos path test</h1>
+<p>Plays the same Dolby Atmos (DD+ JOC) channel-ID clip from Dolby's test kit two ways. While each plays, open <b>Control Center → Sound</b> and note whether it says <b>Dolby Atmos</b> or <b>Multichannel</b>. Play one at a time.</p>
+
+<div class="card">
+  <b>A. Direct file</b> <small>(&lt;audio src&gt;, how your downloaded file played)</small><br>
+  <button id="a">Play direct</button>
+  <audio id="aa" controls preload="none"></audio>
+  <div class="log" id="al"></div>
+</div>
+
+<div class="card">
+  <b>B. Media Source Extensions</b> <small>(how Netflix feeds audio)</small><br>
+  <button id="b">Play via MSE</button>
+  <audio id="bb" controls></audio>
+  <div class="log" id="bl"></div>
+</div>
+
+<div class="card">
+  <b>C. MSE with video + audio</b> <small>(like Netflix: one &lt;video&gt;, two SourceBuffers)</small><br>
+  <button id="c">Play video + audio via MSE</button>
+  <video id="cc" controls style="width:100%;margin-top:8px"></video>
+  <div class="log" id="cl"></div>
+</div>
+
+<p><small>Source: Dolby Digital Plus Online Delivery Kit v1.4.1, ChID_voices_Atmos_6ch_640kbps_ddp_joc. The voices name each channel/object position, so you can also listen for height positions.</small></p>
+<script src="netflix-atmos/dec3.js"></script>
+<script>
+const URL_ = 'https://ott.dolby.com/OnDelKits/DDP/Dolby_Digital_Plus_Online_Delivery_Kit_v1.4.1/Test_Signals/muxed_streams/DASH/OnDemand_MPD/Fragment_Audio/ChID_voices_Atmos_6ch_640kbps_ddp_joc.mp4';
+const A = document.getElementById('aa'), B = document.getElementById('bb');
+const log = (id, m) => document.getElementById(id).textContent += m + '\n';
+
+document.getElementById('a').onclick = () => {
+  B.pause();
+  A.src = URL_; A.play().then(() => log('al', 'playing (direct)')).catch(e => log('al', 'error: ' + e.message));
+};
+
+const VIDEO_URL = URL_.replace('Fragment_Audio/ChID_voices_Atmos_6ch_640kbps_ddp_joc.mp4', 'Fragment_Video/Living-Room-Atmos_720p_25fps_h264.mp4');
+const C = document.getElementById('cc');
+document.getElementById('c').onclick = async () => {
+  A.pause(); B.pause();
+  const at = 'audio/mp4; codecs="ec-3"', vt = 'video/mp4; codecs="avc1.4d4028"';
+  try {
+    log('cl', 'downloading video + audio…');
+    const [vb, ab] = await Promise.all([VIDEO_URL, URL_].map(u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.arrayBuffer(); })));
+    log('cl', 'video ' + (vb.byteLength / 1e6).toFixed(1) + ' MB, audio ' + (ab.byteLength / 1e6).toFixed(1) + ' MB');
+    const ms = new MediaSource();
+    C.src = URL.createObjectURL(ms);
+    await new Promise(r => ms.addEventListener('sourceopen', r, { once: true }));
+    const vsb = ms.addSourceBuffer(vt), asb = ms.addSourceBuffer(at);
+    const append = (sb, b) => new Promise((res, rej) => { sb.addEventListener('updateend', res, { once: true }); sb.addEventListener('error', () => rej(new Error('SourceBuffer error')), { once: true }); sb.appendBuffer(b); });
+    C.addEventListener('error', () => log('cl', 'media element error: ' + C.error.code + ' ' + C.error.message));
+    // Safari caps SourceBuffer memory; append only the first ~12 MB (~25 s) of video.
+    // A byte prefix is valid MSE input: the parser holds any incomplete trailing fragment.
+    await Promise.all([append(vsb, vb.slice(0, 12e6)), append(asb, ab)]);
+    await C.play();
+    log('cl', 'playing (MSE, video + audio)');
+  } catch (e) { log('cl', 'error: ' + e.name + ': ' + e.message); }
+};
+
+document.getElementById('b').onclick = async () => {
+  A.pause();
+  const type = 'audio/mp4; codecs="ec-3"';
+  log('bl', 'MediaSource.isTypeSupported: ' + MediaSource.isTypeSupported(type));
+  try {
+    log('bl', 'downloading…');
+    const buf = await (await fetch(URL_)).arrayBuffer();
+    log('bl', 'got ' + (buf.byteLength / 1e6).toFixed(1) + ' MB');
+    if (window.__dolbyInspectInit) log('bl', 'audio header: ' + JSON.stringify(__dolbyInspectInit(buf.slice(0, 2000))));
+    const MS = window.MediaSource || window.ManagedMediaSource;
+    const ms = new MS();
+    B.disableRemotePlayback = true;
+    B.src = URL.createObjectURL(ms);
+    await new Promise(r => ms.addEventListener('sourceopen', r, { once: true }));
+    const sb = ms.addSourceBuffer(type);
+    sb.addEventListener('updateend', () => { if (ms.readyState === 'open') ms.endOfStream(); log('bl', 'appended; playing (MSE via ' + MS.name + ')'); B.play(); }, { once: true });
+    sb.addEventListener('error', () => log('bl', 'SourceBuffer error; media error: ' + (B.error ? B.error.code + ' ' + B.error.message : 'none')));
+    B.addEventListener('error', () => log('bl', 'media element error: ' + B.error.code + ' ' + B.error.message));
+    sb.appendBuffer(buf);
+  } catch (e) { log('bl', 'error: ' + e.name + ': ' + e.message + ' (page origin: ' + location.origin + ')'); }
+};
+</script></body></html>

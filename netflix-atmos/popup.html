@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Atmosphere</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header class="hero">
+    <img class="logo" src="images/icon-96.png" alt="" width="40" height="40">
+    <div class="titles">
+      <h1>Atmosphere</h1>
+      <p>Dolby Atmos for Netflix in Safari</p>
+    </div>
+    <div class="eq" id="eq" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+  </header>
+
+  <main>
+    <div class="badge" id="badge"><span class="dot"></span><span id="badgeText">Checking…</span></div>
+
+    <section class="card" id="away" hidden>
+      <p class="away-title" id="awayTitle">Open a Netflix tab</p>
+      <p class="muted" id="awayText">Status and logs appear here while Netflix is the active tab.</p>
+      <button id="reloadTab" class="btn" hidden>↻ Reload Netflix tab</button>
+    </section>
+
+    <section class="card steps" id="steps">
+      <ol>
+        <li id="s-requested"><span class="ic"></span><div><b>Asked Netflix for Atmos</b><small></small></div></li>
+        <li id="s-playing"><span class="ic"></span><div><b>Playing in Atmos</b><small></small></div></li>
+        <li id="s-primed"><span class="ic"></span><div><b>Safari in Atmos mode</b><small></small></div></li>
+      </ol>
+    </section>
+
+    <section class="card toggles">
+      <label class="row">
+        <span><b>Ask for Atmos</b><small>Add Dolby audio to Netflix's request</small></span>
+        <input type="checkbox" id="t-request" class="switch">
+      </label>
+      <label class="row">
+        <span><b>Prime Atmos mode</b><small>Play a silent Atmos blip first</small></span>
+        <input type="checkbox" id="t-prime" class="switch">
+      </label>
+      <label class="row">
+        <span><b>Debug mode</b><small>Keep logs here and in Safari's console</small></span>
+        <input type="checkbox" id="t-debug" class="switch">
+      </label>
+      <button id="primeNow" class="btn">✦ Prime now</button>
+    </section>
+
+    <details class="card logs" id="logs" hidden>
+      <summary><span>Logs <em id="logCount">0</em></span>
+        <span class="actions"><button id="copy" class="link">Copy</button><button id="clear" class="link">Clear</button></span>
+      </summary>
+      <ul id="logList"></ul>
+    </details>
+
+    <p class="tip">Check <b>Control Center → Sound</b>: it should say <b>Dolby Atmos</b>.</p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>
