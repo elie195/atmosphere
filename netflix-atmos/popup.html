@@ -24,12 +24,6 @@
       <div class="row" id="row-video"><span class="dot"></span><span class="label">Video</span><b id="videoMain">—</b></div>
     </section>
 
-    <section class="card away" id="away" hidden>
-      <b id="awayTitle">Open Netflix or Disney+</b>
-      <small id="awayText">Atmosphere works on Netflix and Disney+ tabs.</small>
-      <button id="reloadTab" class="btn" hidden>Reload tab</button>
-    </section>
-
     <section class="card">
       <label class="setting">
         <span><b>Dolby Atmos</b><small id="requestDesc">Request Atmos from the site</small></span>
@@ -37,8 +31,9 @@
       </label>
     </section>
 
-    <details class="card nerds" id="nerds">
-      <summary>Stats for nerds</summary>
+    <section class="card nerds" id="nerds">
+      <button class="nerds-toggle" id="nerdsToggle" aria-expanded="false" aria-controls="nerdsWrap">Stats for nerds</button>
+      <div class="nerds-wrap" id="nerdsWrap"><div class="nerds-body">
 
       <dl class="stats" id="stats"></dl>
 
@@ -84,7 +79,8 @@
         </div>
         <ul id="logList"></ul>
       </div>
-    </details>
+      </div></div>
+    </section>
   </main>
   <script src="popup.js"></script>
 </body>

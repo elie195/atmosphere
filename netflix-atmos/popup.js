@@ -110,12 +110,19 @@ function setRow(id, cls, text, makeChips, key) {
 // ---------- render ----------
 function render({ site = 'netflix', state, logs, settings }) {
   applySite(site);
-  $('now').hidden = false;
-  $('away').hidden = true;
   $('t-request').checked = settings.requestAtmos;
   $('t-prime').checked = settings.prime;
   $('t-debug').checked = !!settings.debug;
   $('logs').hidden = !settings.debug;
+
+  if (state.offline) {
+    setRow('row-audio', '', 'Reload the page for live status');
+    setRow('row-video', '', '—');
+    $('row-audio').querySelector('b').classList.add('hint');
+    renderStats(site, state, settings);
+    renderLogs([]);
+    return;
+  }
 
   const p = state.playing;
   const v = state.video || {};
@@ -145,6 +152,7 @@ function renderStats(site, state, settings) {
   const add = (k, val) => { if (val !== undefined && val !== null && val !== '') rows.push([k, String(val)]); };
   const sep = () => rows.push(null);
 
+  if (state.offline) add('Status', 'not connected: reload the page');
   add('Request', state.requested ? 'Atmos added' : settings.requestAtmos ? 'waiting for a title' : 'off');
   sep();
   if (p) {
@@ -196,25 +204,26 @@ function renderLogs(logs) {
   if (atBottom) ul.scrollTop = ul.scrollHeight;
 }
 
-async function showAway() {
+// Couldn't reach the tab's content script. On Netflix/Disney+ that happens when the page was
+// open before Atmosphere was installed or updated; show the normal view (settings still work)
+// with a reload hint. On other websites, show only the brand and one line.
+async function showOffline() {
   const tab = await activeTab();
   const url = (tab && tab.url) || '';
   const site = /^https:\/\/www\.netflix\.com\//.test(url) ? 'netflix' : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url) ? 'disney' : null;
-  applySite(site);
-  // Other websites: just the brand and one line, nothing else.
-  document.body.classList.toggle('idle', !site);
-  $('now').hidden = true;
-  $('away').hidden = !site;
-  $('reloadTab').hidden = !site;
-  $('subline').textContent = site ? '' : 'Open Netflix or Disney+ to start';
-  $('awayTitle').textContent = site ? "Atmosphere isn't connected to this tab" : 'Open Netflix or Disney+';
-  $('awayText').textContent = site
-    ? 'Reload the tab to reconnect.'
-    : "Already there? Allow Atmosphere on the site in Safari Settings → Websites → Extensions.";
+  if (site) {
+    let settings = DEFAULTS;
+    if (api) { try { settings = await api.storage.local.get(DEFAULTS); } catch { /* ignore */ } }
+    render({ site, state: { offline: true }, logs: [], settings });
+    return;
+  }
+  applySite(null);
+  document.body.classList.add('idle');
+  $('subline').textContent = 'Open Netflix or Disney+ to start';
 }
 
 async function refresh() {
-  try { render(await send({ dolby: 'get' })); } catch { tabId = null; await showAway(); }
+  try { render(await send({ dolby: 'get' })); } catch { tabId = null; await showOffline(); }
 }
 
 // ---------- settings ----------
@@ -238,12 +247,6 @@ function saveVideo() {
 $('s-quality').addEventListener('change', saveVideo);
 $('s-range').addEventListener('change', saveVideo);
 
-$('reloadTab').addEventListener('click', async () => {
-  const tab = await activeTab();
-  if (tab) { tabId = null; await api.tabs.reload(tab.id); }
-  window.close();
-});
-
 $('primeNow').addEventListener('click', async () => {
   const b = $('primeNow');
   b.disabled = true; b.textContent = 'Priming…';
@@ -265,9 +268,18 @@ $('clear').addEventListener('click', async (e) => {
   refresh();
 });
 
-// Remember whether Stats for nerds is open (per-viewer convenience).
-try { $('nerds').open = localStorage.getItem('atmosphere-nerds') === '1'; } catch { /* ignore */ }
-$('nerds').addEventListener('toggle', () => { try { localStorage.setItem('atmosphere-nerds', $('nerds').open ? '1' : '0'); } catch { /* ignore */ } });
+// Stats for nerds: toggled with a class; CSS animates the height. Remembered per viewer.
+function setNerds(open) {
+  $('nerds').classList.toggle('open', open);
+  $('nerdsToggle').setAttribute('aria-expanded', String(open));
+  $('nerdsWrap').inert = !open;
+}
+try { setNerds(localStorage.getItem('atmosphere-nerds') === '1'); } catch { setNerds(false); }
+$('nerdsToggle').addEventListener('click', () => {
+  const open = !$('nerds').classList.contains('open');
+  setNerds(open);
+  try { localStorage.setItem('atmosphere-nerds', open ? '1' : '0'); } catch { /* ignore */ }
+});
 
 // ---------- start ----------
 // Safari auto-focuses the first focusable element when the popup opens; clear it.

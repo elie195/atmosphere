@@ -30,8 +30,13 @@ body.theme-disney { --accent: #1f6fd6; }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 [hidden] { display: none !important; }
+/* Safari adds a scrollbar inside the popup when it hits its maximum height; it takes width
+   from one side only and shifts the cards. Keep scrolling, hide the bar, lock the width. */
+html { scrollbar-width: none; overflow-x: hidden; }
+html::-webkit-scrollbar, body::-webkit-scrollbar { display: none; width: 0; height: 0; }
 body {
   width: 320px;
+  overflow-x: hidden;
   background: var(--bg);
   color: var(--fg);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
@@ -64,13 +69,12 @@ main { padding: 10px; display: grid; gap: 8px; }
 .row + .row { border-top: 1px solid var(--line); }
 .row b { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row b.chips-inline { display: flex; gap: 5px; overflow: visible; }
+.row b.hint { font-weight: 400; color: var(--muted); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
 .row.ok .dot { background: var(--ok); }
 .row.warn .dot { background: var(--warn); }
 .label { color: var(--muted); font-size: 12px; }
 
-.away { padding: 12px; display: grid; gap: 4px; }
-.away small { color: var(--muted); }
 
 /* Settings */
 .setting { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; cursor: pointer; }
@@ -90,20 +94,23 @@ main { padding: 10px; display: grid; gap: 8px; }
 .switch:checked { background: var(--accent); }
 .switch:checked::after { transform: translateX(15px); }
 .switch:focus-visible, .select:focus-visible, .btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Safari focuses the first control when the popup opens; no ring on the disclosure,
-   just a colour change when reached by keyboard. */
-.nerds summary, .nerds summary:focus { outline: none; }
-.nerds summary:focus-visible { color: var(--accent); }
 .select {
   flex: none; font: inherit; font-size: 12.5px; font-weight: 600; color: var(--fg);
   background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; cursor: pointer;
 }
 
-/* Stats for nerds */
-.nerds summary { list-style: none; cursor: pointer; padding: 10px 0; color: var(--muted); font-weight: 600; font-size: 12px; }
-.nerds summary::-webkit-details-marker { display: none; }
-.nerds summary::after { content: "›"; float: right; font-size: 14px; line-height: 1; transition: transform .2s; }
-.nerds[open] summary::after { transform: rotate(90deg); }
+/* Stats for nerds (Safari animates the popup window itself, so no transitions here) */
+.nerds-toggle {
+  display: flex; width: 100%; align-items: center; justify-content: space-between;
+  padding: 10px 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 600; color: var(--muted); text-align: left;
+}
+.nerds-toggle::after { content: "›"; font-size: 14px; line-height: 1; }
+.nerds.open .nerds-toggle::after { transform: rotate(90deg); }
+.nerds-toggle:focus { outline: none; }
+.nerds-toggle:focus-visible { color: var(--accent); }
+.nerds-wrap { display: none; }
+.nerds.open .nerds-wrap { display: block; }
 .group { margin: 12px 0 0; font-size: 10.5px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; color: var(--muted); }
 
 .stats { margin: 0; padding: 8px 10px; border-radius: 8px; background: var(--bg); font-family: var(--mono); font-size: 10.5px; line-height: 1.5;
@@ -129,7 +136,7 @@ main { padding: 10px; display: grid; gap: 8px; }
 .logs time { color: var(--muted); flex: none; }
 .logs .msg { overflow-wrap: anywhere; }
 .logs .empty { color: var(--muted); font-family: inherit; }
-.nerds > :last-child { margin-bottom: 10px; }
+.nerds-body > :last-child { margin-bottom: 10px; }
 
 /* Format badges */
 .chip {
