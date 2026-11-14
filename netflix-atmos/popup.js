@@ -1,195 +1,258 @@
-// Atmosphere popup: shows live status from the active Netflix tab's content script.
-// Opened outside Safari (no extension API), it renders demo data for previewing.
+// Atmosphere popup. Shows live status from the active Netflix / Disney+ tab.
+// Opened outside Safari (no extension API) it renders demo data: popup.html?site=disney
 const api = globalThis.browser;
 const $ = (id) => document.getElementById(id);
 const DEFAULTS = { requestAtmos: true, prime: true, debug: false, disneyQuality: 'max', disneyRange: 'dv' };
+const time = (t) => new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 let tabId = null;
 let lastLogs = [];
 
+// ---------- demo data (preview outside Safari) ----------
 const DEMO_SITE = new URLSearchParams(location.search).get('site') || 'netflix';
 const DEMO = {
   site: DEMO_SITE,
   settings: { ...DEFAULTS, debug: true },
   state: {
     hooks: true, requested: true, active: true,
-    playing: { jocFlag: 1, dataRateKbps: 768, complexityIndex: 16, label: 'Dolby Atmos' },
+    playing: { jocFlag: 1, dataRateKbps: 768, complexityIndex: 16, channels: 6, codec: 'eac3', label: 'Dolby Atmos', sampleEntry: 'ec-3 (clear)' },
     primed: 'ok', primeSource: 'extension',
-    switches: [{ t: Date.now() - 2000, from: 'Dolby Digital Plus 5.1 448 kbps', to: 'Dolby Atmos 768 kbps', gainedAtmos: true }],
-    video: { width: 3840, height: 2160, label: '4K', codec: 'dvh1.05.06', range: DEMO_SITE === 'disney' ? 'Dolby Vision' : 'SDR',
-      format: 'HEVC', dropped: 12, total: 4210, switches: [{ t: Date.now() - 6000, from: '480p', to: '4K' }] },
-    qualityFloor: { floor: '2160', kept: [2160] },
+    switches: [{ t: Date.now() - 9000, from: 'Dolby Digital Plus 5.1 448 kbps', to: 'Dolby Atmos 768 kbps' }],
+    video: { width: 3840, height: 2160, label: '4K', codec: DEMO_SITE === 'disney' ? 'dvh1.05.06' : 'hvc1.2.4.L153.B0',
+      range: DEMO_SITE === 'disney' ? 'Dolby Vision' : 'HDR10', format: 'HEVC', dropped: 12, total: 4210,
+      switches: [{ t: Date.now() - 6000, from: '480p', to: '4K' }] },
   },
   logs: [
-    { t: Date.now() - 9000, kind: 'hooks', msg: 'Hooks installed' },
-    { t: Date.now() - 7000, kind: 'prime', msg: "Primed Safari's Atmos mode (click, extension clip)" },
-    { t: Date.now() - 6000, kind: 'profiles', msg: 'Asked Netflix for Atmos', count: 4 },
-    { t: Date.now() - 5000, kind: 'manifest', msg: 'Stream list includes Atmos' },
-    { t: Date.now() - 4000, kind: 'sourcebuffer', msg: 'Player opened an audio stream' },
-    { t: Date.now() - 3000, kind: 'header', msg: 'Audio: Dolby Digital Plus 5.1 (448 kbps)' },
-    { t: Date.now() - 2000, kind: 'switch', msg: 'Stream changed mid-playback: Dolby Digital Plus 5.1 448 kbps → Dolby Atmos 768 kbps' },
+    { t: Date.now() - 9000, kind: 'prime', msg: "Primed Safari's Atmos mode (page start, extension clip)" },
+    { t: Date.now() - 8000, kind: 'header', msg: 'Audio: Dolby Atmos (768 kbps)' },
   ],
 };
 
+// ---------- tab messaging ----------
+async function activeTab() {
+  if (!api) return null;
+  try { const [tab] = await api.tabs.query({ active: true, currentWindow: true }); return tab || null; } catch { return null; }
+}
 async function send(msg) {
   if (!api) return msg.dolby === 'get' ? DEMO : {};
-  if (tabId == null) {
-    const [tab] = await api.tabs.query({ active: true, currentWindow: true });
-    tabId = tab ? tab.id : null;
-  }
+  if (tabId == null) { const tab = await activeTab(); tabId = tab ? tab.id : null; }
   if (tabId == null) throw new Error('no tab');
   return api.tabs.sendMessage(tabId, msg);
 }
 
-function setStep(id, cls, note) {
-  const li = $(id);
-  li.className = cls;
-  li.querySelector('small').textContent = note || '';
-}
-
+// ---------- site theming ----------
 const SITES = {
-  netflix: { name: 'Netflix', theme: '', requested: 'Asked Netflix for Atmos', desc: "Add Dolby audio to Netflix's request" },
-  disney: { name: 'Disney+', theme: 'theme-disney', requested: 'Asked Disney+ for Atmos', desc: 'Add Atmos, 4K and HDR to Disney+\'s request' },
+  netflix: { name: 'Netflix', theme: '', desc: "Request Atmos from Netflix" },
+  disney: { name: 'Disney+', theme: 'theme-disney', desc: 'Request Atmos, 4K and HDR from Disney+' },
 };
 function applySite(site) {
-  const s = SITES[site] || SITES.netflix;
-  document.body.className = s.theme;
-  $('subtitle').textContent = `Dolby Atmos for ${s.name} in Safari`;
-  $('requestedTitle').textContent = s.requested;
-  $('requestDesc').textContent = s.desc;
-  $('disneyCard').hidden = site !== 'disney';
+  const s = SITES[site];
+  document.body.className = s ? s.theme : '';
+  $('site').textContent = s ? s.name : 'Safari';
+  if (s) $('requestDesc').textContent = s.desc;
+  $('disneySettings').hidden = site !== 'disney';
 }
 
-function render({ site, state, logs, settings }) {
-  site = site || 'netflix';
+// Original badge designs (Dolby's own logos are licensed trademarks, so they aren't used).
+const DOME = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 11.5a5.5 5.5 0 0 1 11 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M1.5 12.6h13" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="11.6" cy="6.3" r="1.6" fill="#fff6c8"/></svg>';
+function chip(cls, text, html) {
+  const el = document.createElement('span');
+  el.className = 'chip ' + cls;
+  if (html) el.innerHTML = html;
+  el.append(text);
+  return el;
+}
+// Brand logos are fetched locally (tools/fetch-brand-logos.sh) and never committed.
+// If a file is missing, the element falls back to the original badge/text.
+function brandLogo(file, alt, fallback) {
+  const img = document.createElement('img');
+  img.src = `brand/${file}`;
+  img.alt = alt;
+  img.className = 'brand-logo';
+  img.addEventListener('error', () => img.replaceWith(fallback()), { once: true });
+  return img;
+}
+function logoChip(cls, file, alt, fallback) {
+  const el = document.createElement('span');
+  el.className = 'chip logo ' + cls;
+  el.append(brandLogo(file, alt, () => { const f = fallback(); el.replaceWith(f); return document.createTextNode(''); }));
+  return el;
+}
+const visionChip = () => { const c = chip('vision', 'VISION'); c.prepend(Object.assign(document.createElement('i'), { className: 'spectrum' })); return c; };
+function formatChips(p, v) {
+  const out = [];
+  if (v && v.height) out.push(chip('res', v.label));
+  if (v && v.range === 'Dolby Vision') out.push(logoChip('vision', 'dolby-vision.svg', 'Dolby Vision', visionChip));
+  else if (v && v.range === 'HDR10') out.push(chip('', 'HDR10'));
+  if (p && !p.tentative) {
+    if (p.jocFlag) out.push(logoChip('atmos', 'dolby-atmos.svg', 'Dolby Atmos', () => chip('atmos', 'ATMOS', DOME)));
+    else if (p.channels >= 6) out.push(chip('', '5.1'));
+    else if (p.channels) out.push(chip('', 'STEREO'));
+  }
+  if (v && v.format && v.range !== 'Dolby Vision') out.push(chip('ghost', v.format)); // Dolby Vision implies HEVC
+  return out;
+}
+
+function setRow(id, cls, text, logo) {
+  $(id).className = 'row ' + cls;
+  const b = $(id).querySelector('b');
+  const key = text + '|' + (logo ? logo.file : '');
+  if (b.dataset.key === key) return; // avoid re-creating images every second
+  b.dataset.key = key;
+  if (!logo) { b.textContent = text; return; }
+  b.replaceChildren(...(logo.prefix ? [document.createTextNode(logo.prefix + ' ')] : []),
+    brandLogo(logo.file, logo.alt, () => document.createTextNode(logo.alt)));
+}
+
+// ---------- render ----------
+function render({ site = 'netflix', state, logs, settings }) {
   applySite(site);
+  $('now').hidden = false;
   $('away').hidden = true;
-  $('steps').hidden = false;
   $('t-request').checked = settings.requestAtmos;
   $('t-prime').checked = settings.prime;
   $('t-debug').checked = !!settings.debug;
   $('logs').hidden = !settings.debug;
 
-  const requestedNote = site === 'disney'
-    ? `Atmos, up to 4K, ${({ dv: 'Dolby Vision', hdr10: 'HDR10', sdr: 'SDR' })[settings.disneyRange] || 'HDR'}`
-    : 'Dolby 5.1 + Atmos added to the request';
-  setStep('s-requested', state.requested ? 'ok' : settings.requestAtmos ? 'wait' : 'warn',
-    state.requested ? requestedNote : settings.requestAtmos ? 'Happens when a title starts' : 'Turned off');
-
-  const v = state.video;
-  if (v) {
-    const fmt = (t) => new Date(t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const parts = [v.height && `${v.label} (${v.width}x${v.height})`, v.range, v.format].filter(Boolean);
-    let vnote = parts.length ? parts.join(' · ') : 'Nothing playing';
-    if (v.total > 0 && v.dropped > 0) vnote += `\nDropped ${v.dropped} of ${v.total} frames`;
-    const vsw = v.switches && v.switches[v.switches.length - 1];
-    if (vsw) vnote += `\n↳ Changed at ${fmt(vsw.t)} from ${vsw.from}${v.switches.length > 1 ? ` (${v.switches.length} changes)` : ''}`;
-    if (site === 'disney') {
-      const floor = settings.disneyQuality;
-      if (floor === 'max') vnote += '\nQuality: Highest';
-      else if (floor !== 'auto') vnote += `\nQuality floor: ${floor === '2160' ? '4K' : floor + 'p'}`;
-    }
-    setStep('s-video', v.height ? (v.height >= 1080 ? 'ok' : 'warn') : 'wait', vnote);
-  }
-
   const p = state.playing;
+  const v = state.video || {};
   const live = !!state.active;
-  let cls = 'wait', note = 'Nothing playing';
-  if (p && live && p.tentative && p.codec === 'eac3') {
-    note = 'Dolby Digital Plus · checking for Atmos…';
-  } else if (p && live) {
-    cls = p.jocFlag ? 'ok' : 'warn';
-    const kbps = p.dataRateKbps ? ` · ${p.dataRateKbps} kbps` : '';
-    note = p.jocFlag ? `Dolby Atmos${kbps}` : `${p.label || 'Non-Atmos audio'}${kbps} · no Atmos for this title`;
-  } else if (p) {
-    note = `Paused · ${p.label || (p.jocFlag ? 'Dolby Atmos' : 'audio')} loaded`;
-  } else if (live) {
-    note = 'Waiting for the audio stream';
-  }
-  const sw = (state.switches || [])[state.switches ? state.switches.length - 1 : 0];
-  if (sw) {
-    const at = new Date(sw.t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const more = state.switches.length > 1 ? ` (${state.switches.length} changes)` : '';
-    note += `\n↳ Changed at ${at} from ${sw.from}${more}`;
-    if (sw.lostAtmos && cls === 'warn') note += `\n${SITES[site].name} dropped Atmos, often due to bandwidth`;
-  }
-  setStep('s-playing', cls, note);
+  const atmos = !!(p && p.jocFlag && !p.tentative);
 
-  setStep('s-primed', state.primed === 'ok' ? 'ok' : state.primed === 'failed' || state.primed === 'off' ? 'warn' : 'wait',
-    state.primed === 'ok' ? `Primed with the ${state.primeSource} clip`
-      : state.primed === 'failed' ? "Couldn't prime: try Prime now"
-      : state.primed === 'off' ? 'Priming turned off' : 'Primes on your first click');
+  // Audio row
+  if (!p) setRow('row-audio', '', live ? 'Waiting for audio…' : 'Nothing playing');
+  else if (p.tentative && p.codec === 'eac3') setRow('row-audio', '', 'Dolby Digital Plus · checking…');
+  else setRow('row-audio', atmos ? 'ok' : 'warn', p.label || 'Unknown', atmos ? { file: 'dolby-atmos.svg', alt: 'Dolby Atmos' } : null);
 
-  const atmosLive = live && !!(p && p.jocFlag);
-  const badge = $('badge');
-  badge.className = 'badge ' + (atmosLive ? 'ok' : live && p ? 'warn' : '');
-  $('badgeText').textContent = atmosLive ? 'Atmos is on'
-    : live && p ? 'Playing ' + (p.label ? p.label.replace(/^Dolby Digital Plus /, 'Dolby ') : 'without Atmos')
+  // Video row
+  const videoText = v.height ? [v.label, v.range && v.range !== 'SDR' ? v.range : ''].filter(Boolean).join(' ') : '';
+  setRow('row-video', v.height ? (v.height >= 1080 ? 'ok' : 'warn') : '', videoText || (live ? 'Waiting for video…' : 'Nothing playing'),
+    v.height && v.range === 'Dolby Vision' ? { file: 'dolby-vision.svg', alt: 'Dolby Vision', prefix: v.label } : null);
+
+  // Headline
+  const name = (SITES[site] || {}).name || '';
+  const headline = live && atmos ? 'Atmos is on'
+    : live && p ? `Playing ${p.label ? p.label.replace(/^Dolby Digital Plus /, 'Dolby ') : 'without Atmos'}`
     : p ? 'Paused'
-    : state.hooks ? 'Ready: start a title' : 'Loading…';
-  $('eq').classList.toggle('live', atmosLive);
+    : settings.requestAtmos ? 'Ready' : 'Atmos request off';
+  $('headline').textContent = headline;
+  const chipKey = JSON.stringify([v.label, v.range, v.format, p && p.jocFlag, p && p.channels, p && p.tentative]);
+  let chips = [...$('chips').children];
+  if ($('chips').dataset.key !== chipKey) {
+    chips = formatChips(p, v);
+    $('chips').dataset.key = chipKey;
+    $('chips').replaceChildren(...chips);
+  }
+  $('chips').hidden = !chips.length;
+  $('subline').textContent = chips.length ? '' : live || p ? [p && p.label, videoText].filter(Boolean).join(' · ') : `Start a title on ${name}`;
+  $('subline').hidden = !$('subline').textContent;
+  $('eq').classList.toggle('live', live && atmos);
 
+  renderStats(site, state, settings);
   renderLogs(logs);
 }
 
+function renderStats(site, state, settings) {
+  const p = state.playing;
+  const v = state.video || {};
+  const rows = [];
+  const add = (k, val) => { if (val !== undefined && val !== null && val !== '') rows.push([k, String(val)]); };
+  const sep = () => rows.push(null);
+
+  add('Request', state.requested ? 'Atmos added' : settings.requestAtmos ? 'waiting for a title' : 'off');
+  sep();
+  if (p) {
+    add('Audio', p.label);
+    add('Codec', [p.codec, p.sampleEntry].filter(Boolean).join(' · '));
+    add('Bitrate', p.dataRateKbps ? `${p.dataRateKbps} kbps` : '');
+    add('Channels', p.channels ? `${p.channels}${p.jocFlag ? ' + objects (JOC)' : ''}` : '');
+    if (p.complexityIndex) add('Complexity', p.complexityIndex);
+    const sw = (state.switches || []).slice(-1)[0];
+    if (sw) add('Changed', `${time(sw.t)} from ${sw.from}`);
+  } else add('Audio', 'nothing playing');
+  sep();
+  if (v.height) {
+    add('Video', `${v.label} · ${v.width}×${v.height}`);
+    add('Format', [v.range, v.format].filter(Boolean).join(' · '));
+    add('Codec', v.codec);
+    if (v.total) add('Dropped', `${v.dropped} of ${v.total} frames`);
+    const vsw = (v.switches || []).slice(-1)[0];
+    if (vsw) add('Changed', `${time(vsw.t)} from ${vsw.from}${v.switches.length > 1 ? ` (${v.switches.length}×)` : ''}`);
+  } else add('Video', 'nothing playing');
+  if (site === 'disney') add('Quality', ({ max: 'Highest', auto: 'Auto' })[settings.disneyQuality] || `${settings.disneyQuality}p floor`);
+  sep();
+  add('Atmos mode', state.primed === 'ok' ? `primed (${state.primeSource} clip)`
+    : state.primed === 'failed' ? 'blocked by autoplay: use Prime now'
+    : state.primed === 'off' ? 'priming off' : 'primes on page load');
+
+  $('stats').replaceChildren(...rows.flatMap((r) => {
+    if (!r) { const d = document.createElement('div'); d.className = 'sep'; return [d]; }
+    const dt = document.createElement('dt'); dt.textContent = r[0];
+    const dd = document.createElement('dd'); dd.textContent = r[1];
+    return [dt, dd];
+  }));
+}
+
 function renderLogs(logs) {
-  lastLogs = logs;
-  $('logCount').textContent = logs.length;
+  lastLogs = logs || [];
+  $('logCount').textContent = lastLogs.length;
   const ul = $('logList');
   const atBottom = ul.scrollTop + ul.clientHeight >= ul.scrollHeight - 4;
-  ul.replaceChildren(...(logs.length ? logs : [null]).map((l) => {
+  ul.replaceChildren(...(lastLogs.length ? lastLogs : [null]).map((l) => {
     const li = document.createElement('li');
     if (!l) { li.className = 'empty'; li.textContent = 'No events yet'; return li; }
-    const time = document.createElement('time');
-    time.textContent = new Date(l.t).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const kind = document.createElement('span');
-    kind.className = 'kind ' + l.kind;
-    kind.textContent = l.kind;
-    const msg = document.createElement('span');
-    msg.className = 'msg';
+    const t = document.createElement('time'); t.textContent = time(l.t);
+    const msg = document.createElement('span'); msg.className = 'msg';
     msg.textContent = l.msg + (l.count > 1 ? `  ×${l.count}` : '');
-    li.append(time, kind, msg);
+    li.append(t, msg);
     return li;
   }));
   if (atBottom) ul.scrollTop = ul.scrollHeight;
 }
 
-async function activeTab() {
-  if (!api) return null;
-  try { const [tab] = await api.tabs.query({ active: true, currentWindow: true }); return tab || null; } catch { return null; }
-}
-
 async function showAway() {
   const tab = await activeTab();
-  // Safari only reveals the URL for sites the extension may access.
   const url = (tab && tab.url) || '';
   const site = /^https:\/\/www\.netflix\.com\//.test(url) ? 'netflix' : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url) ? 'disney' : null;
-  applySite(site || 'netflix');
-  $('subtitle').textContent = 'Dolby Atmos for Netflix and Disney+ in Safari';
-  $('disneyCard').hidden = site !== 'disney';
+  applySite(site);
+  $('now').hidden = true;
   $('away').hidden = false;
-  $('steps').hidden = true;
   $('reloadTab').hidden = !site;
+  $('chips').hidden = true;
+  $('subline').hidden = false;
+  $('headline').textContent = site ? 'Reload needed' : 'Not on Netflix or Disney+';
+  $('subline').textContent = site ? 'Atmosphere was updated' : 'Open a title to get Atmos';
   $('awayTitle').textContent = site ? "Atmosphere isn't connected to this tab" : 'Open Netflix or Disney+';
   $('awayText').textContent = site
-    ? 'This usually happens after Atmosphere updates. Reload the tab to reconnect.'
-    : "Status and logs appear here while Netflix or Disney+ is the active tab. Already there? Check that Atmosphere is allowed on the site (click the extension's icon, or Safari Settings → Websites → Extensions).";
-  $('badge').className = 'badge warn';
-  $('badgeText').textContent = site ? 'Reload needed' : 'Not on a supported site';
+    ? 'Reload the tab to reconnect.'
+    : "Already there? Allow Atmosphere on the site in Safari Settings → Websites → Extensions.";
   $('eq').classList.remove('live');
-  renderLogs([]);
 }
 
 async function refresh() {
   try { render(await send({ dolby: 'get' })); } catch { tabId = null; await showAway(); }
 }
 
-async function saveSettings() {
+// ---------- settings ----------
+async function saveToggles() {
   const settings = { requestAtmos: $('t-request').checked, prime: $('t-prime').checked, debug: $('t-debug').checked };
   if (api) await api.storage.local.set(settings);
-  try { await send({ dolby: 'settings', settings }); } catch { /* not on Netflix */ }
+  try { await send({ dolby: 'settings', settings }); } catch { /* not on a supported tab */ }
   refresh();
 }
+for (const id of ['t-request', 't-prime', 't-debug']) $(id).addEventListener('change', saveToggles);
+
+const QDESC = {
+  max: 'Best resolution the title has, within seconds',
+  auto: "Disney+'s own choice (starts low)",
+  2160: '4K, or the best the title has', 1440: 'At least 1440p', 1080: 'At least 1080p', 720: 'At least 720p',
+};
+function saveVideo() {
+  $('qualityDesc').textContent = QDESC[$('s-quality').value] || '';
+  if (api) api.storage.local.set({ disneyQuality: $('s-quality').value, disneyRange: $('s-range').value });
+}
+$('s-quality').addEventListener('change', saveVideo);
+$('s-range').addEventListener('change', saveVideo);
 
 $('reloadTab').addEventListener('click', async () => {
   const tab = await activeTab();
@@ -197,57 +260,42 @@ $('reloadTab').addEventListener('click', async () => {
   window.close();
 });
 
-$('t-request').addEventListener('change', saveSettings);
-$('t-prime').addEventListener('change', saveSettings);
-$('t-debug').addEventListener('change', saveSettings);
-
 $('primeNow').addEventListener('click', async () => {
   const b = $('primeNow');
   b.disabled = true; b.textContent = 'Priming…';
   try { await send({ dolby: 'prime' }); } catch { /* ignore */ }
-  b.disabled = false; b.textContent = '✦ Prime now';
+  b.disabled = false; b.textContent = 'Prime now';
   refresh();
 });
 
 $('copy').addEventListener('click', async (e) => {
   e.preventDefault();
   const text = lastLogs.map((l) => `${new Date(l.t).toISOString()} [${l.kind}] ${l.msg}` + (l.count > 1 ? ` x${l.count}` : '') +
-    (l.data ? ' ' + JSON.stringify(l.data) : '')).join('\n');
+    (l.data ? ' ' + (typeof l.data === 'string' ? l.data : JSON.stringify(l.data)) : '')).join('\n');
   try { await navigator.clipboard.writeText(text); e.target.textContent = 'Copied'; } catch { e.target.textContent = 'Failed'; }
   setTimeout(() => (e.target.textContent = 'Copy'), 1200);
 });
-
 $('clear').addEventListener('click', async (e) => {
   e.preventDefault();
   try { await send({ dolby: 'clear' }); } catch { /* ignore */ }
   refresh();
 });
 
+// Remember whether Stats for nerds is open (per-viewer convenience).
+try { $('nerds').open = localStorage.getItem('atmosphere-nerds') === '1'; } catch { /* ignore */ }
+$('nerds').addEventListener('toggle', () => { try { localStorage.setItem('atmosphere-nerds', $('nerds').open ? '1' : '0'); } catch { /* ignore */ } });
+
+// ---------- start ----------
 (async () => {
-  if (api) {
-    try { const s = await api.storage.local.get(DEFAULTS); $('t-request').checked = s.requestAtmos; $('t-prime').checked = s.prime; $('t-debug').checked = s.debug; $('logs').hidden = !s.debug; } catch { /* ignore */ }
-  }
+  let s = DEFAULTS;
+  if (api) { try { s = await api.storage.local.get(DEFAULTS); } catch { /* ignore */ } }
+  $('t-request').checked = s.requestAtmos;
+  $('t-prime').checked = s.prime;
+  $('t-debug').checked = s.debug;
+  $('logs').hidden = !s.debug;
+  $('s-quality').value = s.disneyQuality;
+  $('s-range').value = s.disneyRange;
+  $('qualityDesc').textContent = QDESC[s.disneyQuality] || '';
   refresh();
   setInterval(refresh, 1000);
-})();
-
-// Disney+ video settings (stored; read by disney-content.js when a title starts).
-(async () => {
-  const VDEF = { disneyQuality: 'max', disneyRange: 'dv' };
-  let v = VDEF;
-  if (api) { try { v = await api.storage.local.get(VDEF); } catch { /* ignore */ } }
-  const QDESC = {
-    max: 'Best resolution the title has, within seconds',
-    auto: "Disney+'s own quality choice (starts low)",
-    2160: '4K, or the best the title has', 1440: 'At least 1440p',
-    1080: 'At least 1080p', 720: 'At least 720p',
-  };
-
-  $('s-quality').value = v.disneyQuality;
-  $('s-range').value = v.disneyRange;
-  $('qualityDesc').textContent = QDESC[v.disneyQuality] || '';
-  $('s-quality').addEventListener('change', () => { $('qualityDesc').textContent = QDESC[$('s-quality').value] || ''; });
-  const save = () => api && api.storage.local.set({ disneyQuality: $('s-quality').value, disneyRange: $('s-range').value });
-  $('s-quality').addEventListener('change', save);
-  $('s-range').addEventListener('change', save);
 })();

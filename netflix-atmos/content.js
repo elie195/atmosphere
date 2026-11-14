@@ -104,13 +104,13 @@ const SOURCES = [
   browser.runtime.getURL('prime.mp4'),
   'https://ott.dolby.com/OnDelKits/DDP/Dolby_Digital_Plus_Online_Delivery_Kit_v1.4.1/Test_Signals/muxed_streams/DASH/OnDemand_MPD/Fragment_Audio/ChID_voices_Atmos_6ch_640kbps_ddp_joc.mp4',
 ];
-const PLAY_MS = 4000;
+const PLAY_MS = 3000;
 let priming = false;
 
 async function playClip(src) {
   const a = new Audio();
   a.preload = 'auto';
-  a.volume = 0.01; // effectively inaudible; muted may not engage the Atmos route
+  a.volume = 0.001; // near-silent; fully muted may not engage the Atmos route
   a.src = src;
   await a.play();
   await new Promise((r) => setTimeout(r, PLAY_MS));

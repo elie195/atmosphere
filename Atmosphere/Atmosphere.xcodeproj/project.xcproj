@@ -66,6 +66,7 @@
             { "path": "../../netflix-atmos/popup.js", "target-membership": [ "Atmosphere Extension/resources" ] },
             { "path": "../../netflix-atmos/page.js", "target-membership": [ "Atmosphere Extension/resources" ] },
             { "path": "../../netflix-atmos/images", "target-membership": [ "Atmosphere Extension/resources" ] },
+            { "path": "../../netflix-atmos/brand", "target-membership": [ "Atmosphere Extension/resources" ] },
             { "path": "../../netflix-atmos/popup.html", "target-membership": [ "Atmosphere Extension/resources" ] },
             { "path": "../../netflix-atmos/prime.mp4", "target-membership": [ "Atmosphere Extension/resources" ] },
             { "path": "../../netflix-atmos/manifest.json", "target-membership": [ "Atmosphere Extension/resources" ] },

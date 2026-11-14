@@ -9,3 +9,4 @@ DerivedData/
 # Fetch it with tools/fetch-prime-clip.sh before building.
 netflix-atmos/prime.mp4
 logs/
+

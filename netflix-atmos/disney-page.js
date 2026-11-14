@@ -248,6 +248,14 @@
         });
       }
     } catch (e) { /* ignore */ }
+    if (!/post/i.test(this.__atmosMethod || '') && isPlaybackUrl(String(this.__atmosUrl || ''))) {
+      this.addEventListener('load', () => {
+        try {
+          if ((!this.responseType || this.responseType === 'text') && /^\s*[{[]/.test(this.responseText)) logApi('response', this.__atmosUrl, JSON.parse(this.responseText));
+          else if (this.responseType === 'json' && this.response) logApi('response', this.__atmosUrl, this.response);
+        } catch (e) { /* ignore */ }
+      });
+    }
     if (/\.m3u8|mpegurl/i.test(String(this.__atmosUrl || ''))) {
       const xhr = this;
       const textDesc = Object.getOwnPropertyDescriptor(XMLHttpRequest.prototype, 'responseText');

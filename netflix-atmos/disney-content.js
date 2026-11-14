@@ -110,10 +110,10 @@ async function primeAtmos(reason, force = false) {
     const where = src.startsWith('https') ? 'dolby.com' : 'extension';
     try {
       const a = new Audio();
-      a.volume = 0.01;
+      a.volume = 0.001; // near-silent; fully muted may not engage the Atmos route
       a.src = src;
       await a.play();
-      await new Promise((r) => setTimeout(r, 4000));
+      await new Promise((r) => setTimeout(r, 3000));
       a.pause(); a.removeAttribute('src'); a.load();
       state.primed = 'ok';
       state.primeSource = where;

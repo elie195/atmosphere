@@ -88,6 +88,10 @@ python3 tools/log-server.py
 - Disney+ support is experimental: the request fields and the AAC→Atmos remap rely on how Disney+'s web player works today. If a title fails (e.g. Error 83), turn off **Ask for Atmos**.
 - Disney+ *Highest* and the fixed quality floors leave no lower versions to fall back to; on a slow connection, use *Auto*.
 
+## Trademarks
+
+Dolby, Dolby Atmos and Dolby Vision are trademarks of Dolby Laboratories. Netflix and Disney+ are trademarks of their respective owners. This project is not affiliated with or endorsed by them. The Dolby Atmos and Dolby Vision logos in `netflix-atmos/brand/` (from Wikimedia Commons) are used only to identify the audio and video formats being played.
+
 ## License
 
 MIT. See [LICENSE](LICENSE). The Dolby test clip isn't included and stays under Dolby's terms.
