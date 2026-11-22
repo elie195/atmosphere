@@ -81,6 +81,15 @@ window.addEventListener('message', (e) => {
   if (kind === 'quality') state.qualityFloor = data;
   if (kind === 'audioOpen') { state.late = false; state.playing = null; state.switches = []; video.reset(); }
   if (kind === 'videoOpen') video.setCodec(data);
+  // The player closed its audio stream (left the title; Disney+ navigates without
+  // reloading): forget it, so the popup doesn't keep showing a stream that's gone.
+  if (kind === 'closed') {
+    state.playing = null;
+    state.switches = [];
+    state.late = false; // the next title is opened with the hooks in place
+    video.reset();
+    video.setCodec('');
+  }
   if (kind === 'header') {
     const before = state.playing;
     if (before && describe(before) !== describe(data)) {
@@ -137,14 +146,11 @@ async function primeAtmos(reason, force = false) {
 // current status in answer to this.
 window.postMessage({ __atmosHello: true }, location.origin);
 
-// Leaving a title (Disney+ navigates without reloading): forget its streams.
-video.onPlayerGone(() => {
-  state.playing = null;
-  state.switches = [];
-  state.late = false;
-  video.reset();
-  video.setCodec('');
-});
+// Something is playing but no audio stream is known (e.g. a message was missed): ask
+// the page script to send its current status again. Cheap, and a no-op if it has none.
+setInterval(() => {
+  if (!state.playing && isPlaying()) window.postMessage({ __atmosHello: true }, location.origin);
+}, 2000);
 
 primeAtmos(state.late ? 'page late' : 'page start');
 if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', () => primeAtmos('page load'), { once: true });

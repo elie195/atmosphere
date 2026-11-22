@@ -17,8 +17,8 @@
   // (re-)injected content.js says hello, so it starts with the current state.
   const REPLAY = ['hooks', 'profiles', 'sourcebuffer', 'videotype', 'header'];
   const latest = {};
-  const post = (kind, msg, data) => {
-    try { window.postMessage({ __dolbyAudio: true, kind, msg, data }, location.origin); } catch (e) { /* ignore */ }
+  const post = (kind, msg, data, replay = false) => {
+    try { window.postMessage({ __dolbyAudio: true, kind, msg, data, replay }, location.origin); } catch (e) { /* ignore */ }
   };
   const emit = (kind, msg, data) => {
     // Console output only in debug mode (content.js sets data-dolby-debug).
@@ -30,9 +30,24 @@
     }
     post(kind, msg, data);
   };
+  // Which audio buffer the status describes, so we can tell when the player closes it
+  // (left the title). A buffer removed from its MediaSource throws on .buffered; this works
+  // however the player attached the stream (blob: src or srcObject), unlike DOM checks.
+  // Fallback for a player that is just removed from the page with its stream still attached:
+  // once its <video> has been in the document, no <video> for 2 s also means it's gone.
+  let currentAudio = null, seenVideo = false, noVideo = 0;
+  const track = (sb) => { currentAudio = sb; seenVideo = false; noVideo = 0; };
+  const playerGone = () => {
+    if (document.querySelector('video')) { seenVideo = true; noVideo = 0; } else if (seenVideo) noVideo++;
+    return !attached(currentAudio) || noVideo >= 2;
+  };
+  const attached = (sb) => {
+    if (sb.__atmosMS && sb.__atmosMS.readyState === 'closed') return false;
+    try { void sb.buffered; return true; } catch (e) { return false; }
+  };
   window.addEventListener('message', (e) => {
     if (e.source !== window || !e.data || !e.data.__atmosHello) return;
-    for (const k of REPLAY) if (latest[k]) post(latest[k].kind, latest[k].msg, latest[k].data);
+    for (const k of REPLAY) if (latest[k]) post(latest[k].kind, latest[k].msg, latest[k].data, true);
   });
   // content.js sets data-dolby-request="off" when the popup toggle is off.
   const requestEnabled = () => document.documentElement.dataset.dolbyRequest !== 'off';
@@ -107,7 +122,8 @@
   MediaSource.prototype.addSourceBuffer = function (type) {
     const sb = origAdd.call(this, type);
     sb.__dolbyType = type;
-    if (/audio/i.test(type)) emit('sourcebuffer', 'Player opened an audio stream', type);
+    sb.__atmosMS = this;
+    if (/audio/i.test(type)) { track(sb); emit('sourcebuffer', 'Player opened an audio stream', type); }
     else if (/video/i.test(type)) emit('videotype', 'Player opened a video stream', type);
     return sb;
   };
@@ -131,7 +147,7 @@
       const unknown = this.__dolbyType === undefined;
       if ((unknown || /audio/i.test(this.__dolbyType)) && typeof __dolbyInspectInit === 'function') {
         const info = __dolbyInspectInit(data);
-        if (info && unknown) this.__dolbyType = 'audio (opened before Atmosphere loaded)';
+        if (info && unknown) { this.__dolbyType = 'audio (opened before Atmosphere loaded)'; track(this); }
         if (info) {
           const key = info.label + ':' + info.dataRateKbps;
           if (key !== this.__dolbyHeaderKey) {
@@ -150,6 +166,13 @@
       return origReq(ks, cfgs);
     };
   }
+
+  setInterval(() => {
+    if (!currentAudio || !playerGone()) return;
+    currentAudio = null;
+    for (const k of ['sourcebuffer', 'videotype', 'header']) delete latest[k];
+    emit('closed', 'Player closed its streams');
+  }, 1000);
 
   emit('hooks', 'Hooks installed');
 })();

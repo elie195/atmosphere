@@ -72,7 +72,7 @@ for (const file of ['dec3.js', 'page.js']) {
 
 window.addEventListener('message', (e) => {
   if (e.source !== window || !e.data || !e.data.__dolbyAudio) return;
-  const { kind, msg, data } = e.data;
+  const { kind, msg, data, replay } = e.data;
   state.hooks = true; // any message means page.js is running
   if (kind === 'profiles') state.requested = true;
   // A new audio stream is opening (new title or episode). Until its header is read,
@@ -102,7 +102,16 @@ window.addEventListener('message', (e) => {
     state.playing = data;
   }
   if (kind === 'codecswitch' && state.playing) state.playing = { ...state.playing, tentative: false };
-  log(kind, msg, data);
+  // The player closed its audio stream (left the title; Netflix navigates without
+  // reloading): forget it, so the popup doesn't keep showing a stream that's gone.
+  if (kind === 'closed') {
+    state.playing = null;
+    state.switches = [];
+    state.late = false; // the next title is opened with the hooks in place
+    video.reset();
+    video.setCodec('');
+  }
+  if (!replay) log(kind, msg, data); // replays repeat events already logged
 });
 
 // Atmos priming. Safari only switches its audio output into Dolby Atmos mode
@@ -165,14 +174,11 @@ async function prime(reason, force = false) {
 // status in answer to this. A fresh page.js hasn't loaded yet and simply doesn't hear it.
 window.postMessage({ __atmosHello: true }, location.origin);
 
-// Leaving a title (Netflix navigates without reloading): forget its streams.
-video.onPlayerGone(() => {
-  state.playing = null;
-  state.switches = [];
-  state.late = false; // the next title is opened with the hooks in place
-  video.reset();
-  video.setCodec('');
-});
+// Something is playing but no audio stream is known (e.g. a message was missed): ask
+// the page script to send its current status again. Cheap, and a no-op if it has none.
+setInterval(() => {
+  if (!state.playing && isPlaying()) window.postMessage({ __atmosHello: true }, location.origin);
+}, 2000);
 
 if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', () => prime('page load'), { once: true });
 for (const ev of ['pointerdown', 'keydown'])
