@@ -39,6 +39,30 @@ async function send(msg) {
   if (tabId == null) throw new Error('no tab');
   return api.tabs.sendMessage(tabId, msg);
 }
+const siteFor = (url) => /^https:\/\/www\.netflix\.com\//.test(url || '') ? 'netflix'
+  : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url || '') ? 'disney' : null;
+const CONTENT_FILES = { netflix: ['video-track.js', 'content.js'], disney: ['video-track.js', 'disney-content.js'] };
+
+// Safari only runs content scripts in pages loaded after Atmosphere was enabled (or
+// updated), so a Netflix / Disney+ tab that was already open has nothing to answer the
+// popup. Inject the content script into it now instead of asking for a reload or a
+// Safari restart. Tried once per tab and page while the popup is open.
+const injected = new Set();
+let injecting = null;
+async function injectContent() {
+  if (!api || !api.scripting) return false;
+  const tab = await activeTab();
+  const site = tab && siteFor(tab.url);
+  if (!site) return false;
+  const key = tab.id + ' ' + tab.url;
+  if (injected.has(key)) return false;
+  injected.add(key);
+  try {
+    await api.scripting.executeScript({ target: { tabId: tab.id }, files: CONTENT_FILES[site] });
+    tabId = tab.id;
+    return true;
+  } catch { return false; }
+}
 
 // ---------- site theming ----------
 const SITES = {
@@ -130,7 +154,10 @@ function render({ site = 'netflix', state, logs, settings }) {
   const atmos = !!(p && p.jocFlag && !p.tentative);
 
   // Audio row
-  if (!p) setRow('row-audio', '', live ? 'Waiting for audio…' : 'Nothing playing');
+  // Injected into a page whose player was already open: its audio header was loaded before
+  // Atmosphere was there, so details appear with the next title (or the next header the player loads).
+  if (!p && state.late && live) setRow('row-audio', '', 'Shown when the next title starts');
+  else if (!p) setRow('row-audio', '', live ? 'Waiting for audio…' : 'Nothing playing');
   else if (p.tentative && p.codec === 'eac3') setRow('row-audio', '', 'Dolby Digital Plus · checking…');
   else setRow('row-audio', atmos ? 'ok' : 'warn', p.label || 'Unknown', () => audioChips(p), JSON.stringify([p.jocFlag, p.channels]));
 
@@ -209,8 +236,7 @@ function renderLogs(logs) {
 // with a reload hint. On other websites, show only the brand and one line.
 async function showOffline() {
   const tab = await activeTab();
-  const url = (tab && tab.url) || '';
-  const site = /^https:\/\/www\.netflix\.com\//.test(url) ? 'netflix' : /^https:\/\/([a-z0-9-]+\.)*disneyplus\.com\//.test(url) ? 'disney' : null;
+  const site = siteFor(tab && tab.url);
   if (site) {
     let settings = DEFAULTS;
     if (api) { try { settings = await api.storage.local.get(DEFAULTS); } catch { /* ignore */ } }
@@ -222,8 +248,23 @@ async function showOffline() {
   $('subline').textContent = 'Open Netflix or Disney+ to start';
 }
 
+async function getStatus() {
+  const r = await send({ dolby: 'get' });
+  if (!r || !r.state) throw new Error('no content script');
+  return r;
+}
 async function refresh() {
-  try { render(await send({ dolby: 'get' })); } catch { tabId = null; await showOffline(); }
+  if (injecting) return; // an injection is in progress; the next tick shows its result
+  try { render(await getStatus()); return; } catch { tabId = null; }
+  injecting = injectContent();
+  const ok = await injecting;
+  injecting = null;
+  if (ok) {
+    // Give page.js a moment to load and replay its status to the new content script.
+    await new Promise((r) => setTimeout(r, 150));
+    try { render(await getStatus()); return; } catch { tabId = null; }
+  }
+  await showOffline();
 }
 
 // ---------- settings ----------

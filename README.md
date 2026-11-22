@@ -52,11 +52,18 @@ cd atmosphere
 cd Atmosphere
 xcodebuild -scheme Atmosphere -configuration Release -derivedDataPath build \
   -allowProvisioningUpdates DEVELOPMENT_TEAM=<your team ID> build
-cp -R build/Build/Products/Release/Atmosphere.app ~/Applications/
+rm -rf ~/Applications/Atmosphere.app   # remove an older copy, if any
+mv build/Build/Products/Release/Atmosphere.app ~/Applications/
 open ~/Applications/Atmosphere.app
 ```
 
-A free Apple ID works for signing: add it in Xcode → Settings → Accounts, and use its "Personal Team" ID. Then turn on **Atmosphere** in Safari → Settings → Extensions and allow it on netflix.com.
+Use `mv`, not `cp`: Safari registers every copy of the app it finds, so leaving one in `build/` gives you two **Atmosphere** entries in Safari's extension list.
+
+A free Apple ID works for signing: add it in Xcode → Settings → Accounts, and use its "Personal Team" ID. Then turn on **Atmosphere** in Safari → Settings → Extensions and allow it on netflix.com and disneyplus.com.
+
+If you build with Xcode's **Sign to Run Locally** option instead of a team, the app is only ad-hoc signed, and Safari treats that as unsigned: the extension doesn't appear in Safari → Settings → Extensions until you turn on **Allow unsigned extensions** (Safari → Settings → Developer, or the Develop menu in older Safari versions). Safari turns that setting off again each time it quits, so you'll need to re-enable it after every restart. Signing with a (free) Personal Team avoids this.
+
+Netflix or Disney+ tabs that were already open when you turned the extension on are picked up the next time you open the popup, so you don't need to reload them or restart Safari. If a title was already playing at that point, its audio details appear when the next title starts; resolution shows straight away.
 
 If you don't want to sign it, you can load it unsigned instead: turn on Safari → Settings → Developer → *Allow unsigned extensions*, then use *Add Temporary Extension…* and pick the `netflix-atmos` folder.
 
