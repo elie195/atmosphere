@@ -20,6 +20,9 @@ const state = {
   primed: null,        // null | 'ok' | 'failed' | 'off'
   primeSource: null,
   switches: [],
+  // Injected after the page had loaded (by the popup, when the tab was open before
+  // Atmosphere was enabled or updated). Streams opened earlier show once their header reloads.
+  late: document.readyState !== 'loading',
 };
 const logs = [];
 const video = createVideoTracker();
@@ -76,7 +79,7 @@ window.addEventListener('message', (e) => {
   state.hooks = true;
   if (kind === 'requested') state.requested = true;
   if (kind === 'quality') state.qualityFloor = data;
-  if (kind === 'audioOpen') { state.playing = null; state.switches = []; video.reset(); }
+  if (kind === 'audioOpen') { state.late = false; state.playing = null; state.switches = []; video.reset(); }
   if (kind === 'videoOpen') video.setCodec(data);
   if (kind === 'header') {
     const before = state.playing;
@@ -130,8 +133,21 @@ async function primeAtmos(reason, force = false) {
   priming = false;
   return state.primed;
 }
-primeAtmos('page start');
-window.addEventListener('DOMContentLoaded', () => primeAtmos('page load'), { once: true });
+// If disney-page.js was already running (this script was injected again), it replays the
+// current status in answer to this.
+window.postMessage({ __atmosHello: true }, location.origin);
+
+// Leaving a title (Disney+ navigates without reloading): forget its streams.
+video.onPlayerGone(() => {
+  state.playing = null;
+  state.switches = [];
+  state.late = false;
+  video.reset();
+  video.setCodec('');
+});
+
+primeAtmos(state.late ? 'page late' : 'page start');
+if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', () => primeAtmos('page load'), { once: true });
 for (const ev of ['pointerdown', 'keydown']) window.addEventListener(ev, () => primeAtmos('click'), { capture: true });
 
 // Popup API

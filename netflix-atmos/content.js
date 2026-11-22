@@ -13,6 +13,10 @@ const state = {
   primed: null,        // null = not yet, 'ok', 'failed', 'off'
   primeSource: null,
   switches: [],        // mid-playback stream changes: { t, from, to }
+  // Injected after the page had loaded (the popup does this when the tab was open before
+  // Atmosphere was enabled or updated). Streams the player opened earlier are only seen
+  // once it loads their header again.
+  late: document.readyState !== 'loading',
 };
 const debugConsole = (...a) => { if (settings.debug) console.info(TAG, ...a); };
 const describe = (p) => p.label + (p.dataRateKbps ? ` ${p.dataRateKbps} kbps` : '');
@@ -52,6 +56,11 @@ const settingsReady = browser.storage.local.get(DEFAULTS).then((s) => {
   applySettingsToPage();
   if (!settings.prime) state.primed = 'off';
 }).catch(() => {});
+// Keep in sync with changes made elsewhere (popup, other tabs).
+browser.storage.onChanged.addListener((changes) => {
+  for (const [k, v] of Object.entries(changes)) if (k in DEFAULTS) settings[k] = v.newValue;
+  applySettingsToPage();
+});
 
 for (const file of ['dec3.js', 'page.js']) {
   const s = document.createElement('script');
@@ -64,12 +73,13 @@ for (const file of ['dec3.js', 'page.js']) {
 window.addEventListener('message', (e) => {
   if (e.source !== window || !e.data || !e.data.__dolbyAudio) return;
   const { kind, msg, data } = e.data;
-  if (kind === 'hooks') state.hooks = true;
+  state.hooks = true; // any message means page.js is running
   if (kind === 'profiles') state.requested = true;
   // A new audio stream is opening (new title or episode). Until its header is read,
   // show a provisional answer from the stream type the player declared.
   if (kind === 'videotype') video.setCodec(data);
   if (kind === 'sourcebuffer') {
+    state.late = false;
     state.switches = [];
     video.reset();
     const t = String(data || '');
@@ -151,7 +161,20 @@ async function prime(reason, force = false) {
   return state.primed;
 }
 
-window.addEventListener('DOMContentLoaded', () => prime('page load'), { once: true });
+// If page.js was already running (this script was injected again), it replays the current
+// status in answer to this. A fresh page.js hasn't loaded yet and simply doesn't hear it.
+window.postMessage({ __atmosHello: true }, location.origin);
+
+// Leaving a title (Netflix navigates without reloading): forget its streams.
+video.onPlayerGone(() => {
+  state.playing = null;
+  state.switches = [];
+  state.late = false; // the next title is opened with the hooks in place
+  video.reset();
+  video.setCodec('');
+});
+
+if (document.readyState === 'loading') window.addEventListener('DOMContentLoaded', () => prime('page load'), { once: true });
 for (const ev of ['pointerdown', 'keydown'])
   window.addEventListener(ev, () => prime('click'), { capture: true });
 

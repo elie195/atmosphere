@@ -7,13 +7,31 @@
 //  - DRM key system requested
 // Output goes to the console as [Atmosphere/Disney+] lines, only when Debug mode is on.
 (() => {
+  // Already installed (disney-content.js was injected again, e.g. by the popup after the
+  // extension was enabled or updated): don't hook twice; the content script asks for a replay.
+  if (window.__atmosphereDisneyHooks) return;
+  window.__atmosphereDisneyHooks = true;
   const TAG = '[Atmosphere/Disney+]';
   const on = () => document.documentElement.dataset.dolbyDebug === 'on';
   const seen = new Set();
-  // Structured status for the popup (always sent; not gated on Debug mode).
-  const event = (kind, data) => {
+  // Structured status for the popup (always sent; not gated on Debug mode). The latest event
+  // of each status kind is replayed when a (re-)injected content script says hello.
+  const REPLAY = ['hooks', 'requested', 'quality', 'audioOpen', 'videoOpen', 'header'];
+  const latest = {};
+  const post = (kind, data) => {
     try { window.postMessage({ __atmosEvent: true, kind, data }, location.origin); } catch (e) { /* ignore */ }
   };
+  const event = (kind, data) => {
+    if (REPLAY.includes(kind)) {
+      latest[kind] = data;
+      if (kind === 'audioOpen') delete latest.header; // a new audio stream supersedes the old header
+    }
+    post(kind, data);
+  };
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || !e.data.__atmosHello) return;
+    for (const k of REPLAY) if (k in latest) post(k, latest[k]);
+  });
   const log = (msg, data, key) => {
     if (!on()) return;
     if (key) { if (seen.has(key)) return; seen.add(key); }
@@ -317,8 +335,12 @@
     const origAppend = SourceBuffer.prototype.appendBuffer;
     SourceBuffer.prototype.appendBuffer = function (data) {
       try {
-        if (/audio/i.test(this.__atmosType || '') && typeof __dolbyInspectInit === 'function') {
+        // Buffers opened before these hooks existed have no recorded type: check their
+        // init segments too (media segments are rejected after a few KB).
+        const unknown = this.__atmosType === undefined;
+        if ((unknown || /audio/i.test(this.__atmosType)) && typeof __dolbyInspectInit === 'function') {
           const info = __dolbyInspectInit(data);
+          if (info && unknown) this.__atmosType = 'audio (opened before Atmosphere loaded)';
           if (info) event('header', info);
           if (info) log('Audio stream header: ' + info.label + (info.dataRateKbps ? ` (${info.dataRateKbps} kbps)` : ''), info, 'hdr:' + info.label + info.dataRateKbps);
         }

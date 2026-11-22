@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Atmosphere",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Dolby Atmos for Netflix and Disney+ in Safari: requests Atmos audio (and 4K/HDR on Disney+) and switches Safari into Atmos mode.",
   "content_scripts": [
     {
@@ -48,7 +48,8 @@
     }
   ],
   "permissions": [
-    "storage"
+    "storage",
+    "scripting"
   ],
   "icons": {
     "16": "images/icon-16.png",
@@ -77,6 +78,8 @@
     "service_worker": "background.js"
   },
   "host_permissions": [
+    "https://www.netflix.com/*",
+    "https://*.disneyplus.com/*",
     "http://127.0.0.1/*"
   ]
 }

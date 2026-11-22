@@ -6,14 +6,34 @@
 // appended. Nothing touches DRM or decryption.
 // Events go to the console and, via postMessage, to content.js for the popup.
 (() => {
+  // Already installed (content.js was injected again, e.g. by the popup after the extension
+  // was enabled or updated): don't hook twice; content.js asks for a replay instead.
+  if (window.__atmosphereNetflixHooks) return;
+  window.__atmosphereNetflixHooks = true;
   const TAG = '[DolbyAudio]';
   const EXTRA_PROFILES = ['ddplus-2.0-dash', 'ddplus-5.1-dash', 'ddplus-5.1hq-dash', 'ddplus-atmos-dash'];
 
+  // The latest event of each kind that makes up the popup's status, replayed when a
+  // (re-)injected content.js says hello, so it starts with the current state.
+  const REPLAY = ['hooks', 'profiles', 'sourcebuffer', 'videotype', 'header'];
+  const latest = {};
+  const post = (kind, msg, data) => {
+    try { window.postMessage({ __dolbyAudio: true, kind, msg, data }, location.origin); } catch (e) { /* ignore */ }
+  };
   const emit = (kind, msg, data) => {
     // Console output only in debug mode (content.js sets data-dolby-debug).
     if (document.documentElement.dataset.dolbyDebug === 'on') console.info(TAG, msg, data === undefined ? '' : data);
-    try { window.postMessage({ __dolbyAudio: true, kind, msg, data }, location.origin); } catch (e) { /* ignore */ }
+    if (REPLAY.includes(kind)) {
+      latest[kind] = { kind, msg, data };
+      // A new audio stream supersedes the previous one's header.
+      if (kind === 'sourcebuffer') delete latest.header;
+    }
+    post(kind, msg, data);
   };
+  window.addEventListener('message', (e) => {
+    if (e.source !== window || !e.data || !e.data.__atmosHello) return;
+    for (const k of REPLAY) if (latest[k]) post(latest[k].kind, latest[k].msg, latest[k].data);
+  });
   // content.js sets data-dolby-request="off" when the popup toggle is off.
   const requestEnabled = () => document.documentElement.dataset.dolbyRequest !== 'off';
 
@@ -106,8 +126,12 @@
   SourceBuffer.prototype.appendBuffer = function (data) {
     try {
       // Only init segments carry a dec3 box; report each change of audio stream once.
-      if (/audio/i.test(this.__dolbyType || '') && typeof __dolbyInspectInit === 'function') {
+      // Buffers the player opened before these hooks existed have no recorded type:
+      // check their init segments too (media segments are rejected after a few KB).
+      const unknown = this.__dolbyType === undefined;
+      if ((unknown || /audio/i.test(this.__dolbyType)) && typeof __dolbyInspectInit === 'function') {
         const info = __dolbyInspectInit(data);
+        if (info && unknown) this.__dolbyType = 'audio (opened before Atmosphere loaded)';
         if (info) {
           const key = info.label + ':' + info.dataRateKbps;
           if (key !== this.__dolbyHeaderKey) {
