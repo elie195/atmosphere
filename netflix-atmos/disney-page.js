@@ -28,6 +28,21 @@
     }
     post(kind, data);
   };
+  // Which audio buffer the status describes, so we can tell when the player closes it
+  // (left the title). A buffer removed from its MediaSource throws on .buffered; this works
+  // however the player attached the stream (blob: src or srcObject), unlike DOM checks.
+  // Fallback for a player that is just removed from the page with its stream still attached:
+  // once its <video> has been in the document, no <video> for 2 s also means it's gone.
+  let currentAudio = null, seenVideo = false, noVideo = 0;
+  const track = (sb) => { currentAudio = sb; seenVideo = false; noVideo = 0; };
+  const playerGone = () => {
+    if (document.querySelector('video')) { seenVideo = true; noVideo = 0; } else if (seenVideo) noVideo++;
+    return !attached(currentAudio) || noVideo >= 2;
+  };
+  const attached = (sb) => {
+    if (sb.__atmosMS && sb.__atmosMS.readyState === 'closed') return false;
+    try { void sb.buffered; return true; } catch (e) { return false; }
+  };
   window.addEventListener('message', (e) => {
     if (e.source !== window || !e.data || !e.data.__atmosHello) return;
     for (const k of REPLAY) if (k in latest) post(k, latest[k]);
@@ -328,6 +343,8 @@
       }
       const sb = origAdd.call(this, type);
       sb.__atmosType = type;
+      sb.__atmosMS = this;
+      if (/audio/i.test(type)) track(sb);
       event(/audio/i.test(type) ? 'audioOpen' : 'videoOpen', type);
       log('Player uses MSE: opened SourceBuffer', type);
       return sb;
@@ -340,7 +357,7 @@
         const unknown = this.__atmosType === undefined;
         if ((unknown || /audio/i.test(this.__atmosType)) && typeof __dolbyInspectInit === 'function') {
           const info = __dolbyInspectInit(data);
-          if (info && unknown) this.__atmosType = 'audio (opened before Atmosphere loaded)';
+          if (info && unknown) { this.__atmosType = 'audio (opened before Atmosphere loaded)'; track(this); }
           if (info) event('header', info);
           if (info) log('Audio stream header: ' + info.label + (info.dataRateKbps ? ` (${info.dataRateKbps} kbps)` : ''), info, 'hdr:' + info.label + info.dataRateKbps);
         }
@@ -405,6 +422,14 @@
       }
     }
   }, 2000);
+
+  setInterval(() => {
+    if (!currentAudio || !playerGone()) return;
+    currentAudio = null;
+    for (const k of ['audioOpen', 'videoOpen', 'header']) delete latest[k];
+    event('closed');
+    log('Player closed its streams');
+  }, 1000);
 
   event('hooks');
   log('Hooks installed');

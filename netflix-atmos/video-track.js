@@ -13,7 +13,7 @@ function createVideoTracker() {
   t.poll = () => {
     const v = [...document.querySelectorAll('video')].find((x) => x.videoHeight && !x.paused) ||
       [...document.querySelectorAll('video')].find((x) => x.videoHeight);
-    if (!v) return;
+    if (!v) { t.width = 0; t.height = 0; return; } // no video loaded (left the title)
     if (v.videoHeight !== t.height && t.height) {
       t.switches.push({ t: Date.now(), from: label(t.height), to: label(v.videoHeight) });
       if (t.switches.length > 30) t.switches.shift();
@@ -24,17 +24,6 @@ function createVideoTracker() {
   };
   t.snapshot = () => ({ width: t.width, height: t.height, label: label(t.height), codec: t.codec, range: t.range, format: t.format,
     dropped: t.dropped, total: t.total, switches: t.switches.slice(-10) });
-  // Is there a player on the page right now (a <video> with a source)?
-  t.hasPlayer = () => [...document.querySelectorAll('video')].some((x) => x.currentSrc || x.src);
-  // Calls onGone once each time the player disappears (left the title, SPA navigation back
-  // to browsing), so the popup never keeps showing a stream that's no longer there.
-  let missing = 0;
-  t.onPlayerGone = (onGone) => {
-    setInterval(() => {
-      if (t.hasPlayer()) { missing = 0; return; }
-      if (++missing === 2) onGone();
-    }, 1000);
-  };
   setInterval(t.poll, 1000);
   return t;
 }
